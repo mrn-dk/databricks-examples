@@ -51,15 +51,22 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
 
       - name: Bump version and update changelog
-        run: uv run cz bump --yes
+        id: bump
+        run: |
+          uv run cz bump --yes && echo "bumped=true" >> "$GITHUB_OUTPUT" || {
+            code=$?; [ $code -eq 16 ] && echo "bumped=false" >> "$GITHUB_OUTPUT" || exit $code
+          }
 
       - name: Set up Node.js
+        if: steps.bump.outputs.bumped == 'true'
         uses: actions/setup-node@v4
 
       - name: Install Copilot CLI
+        if: steps.bump.outputs.bumped == 'true'
         run: npm install -g @github/copilot
 
       - name: Summarize changelog and create release
+        if: steps.bump.outputs.bumped == 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           COPILOT_GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
