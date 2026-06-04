@@ -52,3 +52,22 @@ jobs:
 
       - name: Bump version and update changelog
         run: uv run cz bump --yes
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+
+      - name: Install Copilot CLI
+        run: npm install -g @github/copilot
+
+      - name: Summarize changelog and create release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
+        run: |
+          VERSION=$(git describe --tags --abbrev=0)
+          CHANGELOG=$(awk '/^## /{i++} i==1{print} i==2{exit}' CHANGELOG.md)
+          SUMMARY=$(copilot -sp "Summarize the following changelog for a GitHub release in 3-5 plain bullet points, no markdown headers:\n\n${CHANGELOG}" --no-ask-user)
+          gh release create "$VERSION" \
+            --title "Release $VERSION" \
+            --notes "$SUMMARY" \
+            --latest
