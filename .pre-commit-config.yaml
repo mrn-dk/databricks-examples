@@ -9,8 +9,8 @@ repos:
     rev: v2.1.0
     hooks:
       - id: mypy
-  - repo: https://github.com/commitizen-tools/commitizen
-    rev: v4.16.3
+  - repo: https://github.com/commit-check/commit-check
+    rev: v2.6.0
     hooks:
-      - id: commitizen
-        stages: [commit-msg]
+      - id: check-message
+      - id: check-branch
