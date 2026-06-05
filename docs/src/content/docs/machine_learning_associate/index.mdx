@@ -1,27 +1,47 @@
 ---
-title: Learning objectives overview
+title: Learning objective and curriculum
 description: Examples and study material for the Databricks Machine Learning Associate certification.
+editUrl: false
 sidebar:
+  label: Learning objective and curriculum
   order: 1
 ---
+import { Aside } from '@astrojs/starlight/components';
 
-The following list contains an overview of the learning outcomes covered by the certification exam, which we will go through here.
 
-## **Section 1: Databricks Machine Learning** 
+The following lists contains an overview of all the learning outcomes which the certificate exam covers.
+They are based on the current exam specification as of June 6th, 2026. 
 
-The learning objectives have been divided into five areas of study.
+<Aside type="note">
+For the latest information about the exam and its requirement, please go to [the official certification page](https://www.databricks.com/learn/certification/machine-learning-associate). 
+</Aside>
 
-#### [MLOps](./1_databricks_machine_learning/1_mlops)
+The exam is divided into four areas: 
+1. Databricks machine learning
+2. Data processing
+3. Model development
+4. Model deployment.
+
+## Curriculum
+
+I have detailed the entire curriculum for this guide here. Each area consists of _both_ the written documentation
+on this page, but also the code examples that go along with them. Not all areas have code examples, if they have a more theoretical nature.
+
+**1. Databricks Machine Learning** 
+
+Covers the tools and workflows available in the Databricks platform to support the full machine learning lifecycle. Topics include MLOps best practices, ML runtimes, AutoML, the Feature Store, and MLflow.
+
+**[MLOps](./1_databricks_machine_learning/1_mlops)**
 - Identify the best practices of an MLOps strategy 
 
-#### [ML Runtime](./1_databricks_machine_learning/2_ml_runtimes)
+**[ML Runtime](./1_databricks_machine_learning/2_ml_runtimes)**
 - Identify the advantages of using ML runtimes 
 
-#### [AutoML](./1_databricks_machine_learning/3_automl)
+**[AutoML](./1_databricks_machine_learning/3_automl)**
 - Identify how AutoML facilitates model/feature selection. 
 - Identify the advantages AutoML brings to the model development process 
 
-#### [Feature Store](./1_databricks_machine_learning/4_feature_stores)
+**[Feature Store](./1_databricks_machine_learning/4_feature_stores)**
 - Identify the benefits of creating feature store tables at the account level in Unity Catalog in Databricks vs at the workspace level 
 - Create a feature store table in Unity Catalog 
 - Write data to a feature store table 
@@ -29,7 +49,7 @@ The learning objectives have been divided into five areas of study.
 - Score a model using features from a feature store table. 
 - Describe the differences between online and offline feature tables 
 
-#### [MLflow](./1_databricks_machine_learning/5_mlflow)
+**[Mlflow](./1_databricks_machine_learning/5_mlflow)**
 - Identify the best run using the MLflow Client API. 
 - Manually log metrics, artifacts, and models in an MLflow Run. 
 - Identify information available in the MLFlow UI 
@@ -39,36 +59,36 @@ The learning objectives have been divided into five areas of study.
 - Set or remove a tag for a model 
 - Promote a challenger model to a champion model using aliases 
 
-## **Section 2: Data Processing** 
+**2. Data Processing** 
 
-The learning objectives have been divided into two areas of study.
+Focuses on preparing raw data for model training using Spark and Databricks. Covers exploratory data analysis, handling missing values, encoding categorical variables, and feature transformation techniques.
 
-#### [Data Exploration](./2_data_processing/1_data_exploration)
+**[Data Exploration](./2_data_processing/1_data_exploration)**
 - Compute summary statistics on a Spark DataFrame using **`.summary()`** or dbutils data summaries 
 - Remove outliers from a Spark DataFrame based on standard deviation or IQR 
 - Create visualizations for categorical or continuous features 
 - Compare two categorical or two continuous features using the appropriate method 
 
-#### [Feature Engineering](./2_data_processing/2_feature_engineering)
+**[Feature Engineering](./2_data_processing/2_feature_engineering)**
 - Compare and contrast imputing missing values with the mean or median or mode value 
 - Impute missing values with the mode, mean, or median value 
 - Use one-hot encoding for categorical features 
 - Identify and explain the model types or data sets for which one-hot encoding is or is not appropriate. 
 - Identify scenarios where log scale transformation is appropriate 
 
-## **Section 3: Model Development** 
+**3. Model Development** 
 
-The learning objectives have been divided into four areas of study.
+Addresses the end-to-end process of building and evaluating machine learning models. Topics range from algorithm selection and training pipelines to hyperparameter tuning and performance evaluation.
 
-#### [Model Selection](./3_model_development/1_model_selection)
+**[Model Selection](./3_model_development/1_model_selection)**
 - Use ML foundations to select the appropriate algorithm for a given model scenario 
 - Identify methods to mitigate data imbalance in training data 
 - Compare estimators and transformers 
 
-#### [Training Pipelines](./3_model_development/2_training_pipelines)
+**[Training Pipelines](./3_model_development/2_training_pipelines)**
 - Develop a training pipeline 
 
-#### [Hyperparameter Tuning](./3_model_development/3_hyperparameter_tuning)
+**[Hyperparameter Tuning](./3_model_development/3_hyperparameter_tuning)**
 - Use Hyperopt's **`fmin`** operation to tune a model's hyperparameters 
 - Perform random or grid search or Bayesian search as a method for tuning hyperparameters. 
 - Parallelize single node models for hyperparameter tuning 
@@ -76,27 +96,27 @@ The learning objectives have been divided into four areas of study.
 - Perform cross-validation as a part of model fitting. 
 - Identify the number of models being trained in conjunction with a grid-search and cross-validation process. 
 
-#### [Model Evaluation](./3_model_development/4_model_evaluation)
+**[Model Evaluation](./3_model_development/4_model_evaluation)**
 - Use common classification metrics: F1, Log Loss, ROC/AUC, etc 
 - Use common regression metrics: RMSE, MAE, R-squared, etc. 
 - Choose the most appropriate metric for a given scenario objective 
 - Identify the need to exponentiate log-transformed variables before calculating evaluation metrics or interpreting predictions 
 - Assess the impact of model complexity and the bias variance tradeoff on model performance 
 
-## **Section 4: Model Deployment** 
+**4. Model Deployment** 
 
-The learning objectives have been divided into four areas of study.
+Covers strategies for serving trained models to production consumers. Examines batch, streaming, and real-time inference approaches and how to deploy and query model endpoints.
 
-#### [Deployment Approaches](./4_model_deployment/1_deployment_approaches)
+**[Deployment Approaches](./4_model_deployment/1_deployment_approaches)**
 - Identify the differences and advantages of model serving approaches: batch, realtime, and streaming 
 - Deploy a custom model to a model endpoint 
 
-#### [Batch Inference](./4_model_deployment/2_batch_inference)
+**[Batch Inference](./4_model_deployment/2_batch_inference)**
 - Use pandas to perform batch inference 
 
-#### [Streaming Inference](./4_model_deployment/3_streaming_inference)
+**[Streaming Inference](./4_model_deployment/3_streaming_inference)**
 - Identify how streaming inference is performed with Delta Live Tables 
 
-#### [Realtime Inference](./4_model_deployment/4_realtime_inference)
+**[Realtime Inference](./4_model_deployment/4_realtime_inference)**
 - Deploy and query a model for realtime inference 
 - Split data between endpoints for realtime inference

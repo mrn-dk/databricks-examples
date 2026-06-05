@@ -2,9 +2,226 @@
 title: "Deployment Approaches"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Deploy models using Model Serving](https://docs.databricks.com/aws/en/machine-learning/model-serving/index)
 - [Model deployment patterns](https://docs.databricks.com/aws/en/machine-learning/mlops/deployment-patterns)
 - [Custom models](https://docs.databricks.com/aws/en/machine-learning/model-serving/custom-models)
 - [Tutorial: Deploy and query a custom model](https://docs.databricks.com/aws/en/machine-learning/model-serving/model-serving-intro)
+
+## Model Serving Approaches
+
+> Identify the differences and advantages of model serving approaches: batch, realtime, and streaming
+
+Databricks supports three primary approaches for model inference, each optimized for different use cases:
+
+### Batch Inference
+
+**What it is:** Process large volumes of data asynchronously, typically on a schedule (hourly, daily, etc.). Predictions are computed for many records at once and stored for later use.
+
+**How it works:** Load the model once, process entire datasets using Spark DataFrames or pandas UDFs, and write results to tables.
+
+**Advantages:**
+- **High throughput** — Process millions of records efficiently
+- **Cost-effective** — Resources are only used during batch job execution
+- **Simple architecture** — No need for REST APIs or serving infrastructure
+- **Easy to monitor** — Results are persisted and can be audited
+
+**Disadvantages:**
+- **High latency** — Predictions not available immediately
+- **Stale predictions** — Results become outdated between batch runs
+- **Resource scheduling** — Requires cluster management
+
+**When to use:**
+- Predictions needed for many records at predetermined times
+- Latency requirements are hours or days
+- Examples: Daily customer churn scores, monthly credit risk assessments, weekly product recommendations
+
+### Real-time Inference
+
+**What it is:** Expose models as REST API endpoints that return predictions immediately upon request. Each request is processed individually with low latency.
+
+**How it works:** Deploy models to Databricks Model Serving, which creates scalable REST endpoints with sub-50ms latency overhead.
+
+**Advantages:**
+- **Low latency** — Predictions returned in milliseconds
+- **Always current** — Predictions use the latest feature values
+- **On-demand** — No need to pre-compute predictions
+- **Scalable** — Automatically scales based on request volume
+
+**Disadvantages:**
+- **Higher cost** — Endpoint runs continuously, even with low traffic
+- **More complex** — Requires API integration and error handling
+- **Feature availability** — Features must be available at inference time
+
+**When to use:**
+- Predictions needed immediately for individual records
+- Latency requirements are milliseconds to seconds
+- Examples: Fraud detection during transactions, real-time product recommendations, chatbots
+
+### Streaming Inference
+
+**What it is:** Continuously process data streams and generate predictions as new data arrives. Combines aspects of batch and real-time inference.
+
+**How it works:** Use Structured Streaming to consume data from sources like Kafka or Event Hubs, apply model predictions, and write results to sinks.
+
+**Advantages:**
+- **Continuous processing** — No batch scheduling needed
+- **Low latency** — Predictions generated within seconds of data arrival
+- **Scalable** — Leverages Spark's distributed processing
+- **Fault-tolerant** — Checkpointing ensures exactly-once processing
+
+**Disadvantages:**
+- **Complexity** — Requires understanding of streaming systems
+- **Resource usage** — Cluster runs continuously
+- **Stateful processing** — Managing state can be challenging
+
+**When to use:**
+- Data arrives continuously as streams
+- Predictions needed within seconds of data arrival
+- Examples: IoT sensor monitoring, real-time log analysis, continuous anomaly detection
+
+## Deploying Custom Models
+
+> Deploy a custom model to a model endpoint
+
+Custom models in MLflow format (scikit-learn, XGBoost, PyTorch, etc.) can be deployed to Model Serving endpoints.
+
+### Step 1: Register model to Unity Catalog
+
+```python
+import mlflow
+
+# Log and register model
+with mlflow.start_run():
+    # Train model
+    model.fit(X_train, y_train)
+
+    # Log model
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        registered_model_name="main.ml_models.customer_churn"
+    )
+```
+
+### Step 2: Create serving endpoint (UI)
+
+1. Navigate to **Serving** in the Databricks workspace
+2. Click **Create serving endpoint**
+3. Configure endpoint:
+   - **Name:** Unique endpoint name
+   - **Served models:** Select model from Unity Catalog
+   - **Model version:** Choose version or alias (e.g., @Champion)
+   - **Compute scale:** Choose size based on expected traffic
+4. Click **Create**
+
+### Step 3: Create serving endpoint (API)
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
+# Create endpoint
+w.serving_endpoints.create(
+    name="customer-churn-endpoint",
+    config={
+        "served_models": [{
+            "model_name": "main.ml_models.customer_churn",
+            "model_version": "1",
+            "workload_size": "Small",
+            "scale_to_zero_enabled": True
+        }]
+    }
+)
+```
+
+### Step 4: Query the endpoint
+
+```python
+import requests
+import os
+
+# Get token
+token = os.environ.get("DATABRICKS_TOKEN")
+endpoint_url = "https://<workspace-url>/serving-endpoints/customer-churn-endpoint/invocations"
+
+# Prepare request
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+data = {
+    "dataframe_records": [
+        {"feature1": 1.0, "feature2": 2.0, "feature3": 3.0}
+    ]
+}
+
+# Make prediction
+response = requests.post(endpoint_url, headers=headers, json=data)
+predictions = response.json()
+print(predictions)
+```
+
+## Endpoint Configuration Options
+
+### Compute scale
+
+Choose workload size based on expected traffic:
+- **Small** — Up to 500 requests/minute
+- **Medium** — Up to 5,000 requests/minute
+- **Large** — Up to 50,000 requests/minute
+
+### Scale-to-zero
+
+Enable to automatically shut down endpoints during periods of inactivity, reducing costs. Endpoint restarts when requests arrive (adds cold-start latency).
+
+### Model versioning
+
+Serve models by:
+- **Version number** — Fixed version (e.g., version 3)
+- **Alias** — Dynamic reference (e.g., @Champion)
+
+Using aliases allows transparent model updates without endpoint redeployment.
+
+### Traffic splitting
+
+Route traffic between multiple model versions for A/B testing:
+
+```python
+w.serving_endpoints.update_config(
+    name="customer-churn-endpoint",
+    served_models=[
+        {
+            "model_name": "main.ml_models.customer_churn",
+            "model_version": "3",
+            "workload_size": "Small",
+            "traffic_percentage": 90
+        },
+        {
+            "model_name": "main.ml_models.customer_churn",
+            "model_version": "4",
+            "workload_size": "Small",
+            "traffic_percentage": 10
+        }
+    ]
+)
+```
+
+## Model Serving Benefits
+
+**Unified interface** — Deploy and govern all models (custom, foundation, external) through a single platform.
+
+**Automatic scaling** — Infrastructure scales based on demand, supporting over 25,000 queries per second.
+
+**Low latency** — Sub-50ms latency overhead ensures fast response times.
+
+**High availability** — Built-in redundancy and failover for production workloads.
+
+**Security** — AES-256 encryption at rest, TLS 1.2+ in transit, and comprehensive access controls.
+
+**Monitoring** — Automatic capture of requests and responses for observability.

@@ -2,9 +2,340 @@
 title: "Model Evaluation"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [mlflow.evaluate() API reference](https://mlflow.org/docs/latest/python_api/mlflow.html#mlflow.evaluate)
 - [MLflow Model Evaluation documentation](https://mlflow.org/docs/latest/model-evaluation/index.html)
 - [Experiment tracking using Databricks](https://docs.databricks.com/aws/en/mlflow/tracking)
 - [Apache Spark MLlib evaluation metrics](https://spark.apache.org/docs/latest/mllib-evaluation-metrics.html)
+
+## Classification Metrics
+
+> Use common classification metrics: F1, Log Loss, ROC/AUC, etc
+
+Classification metrics evaluate how well a model predicts categorical outcomes.
+
+### Accuracy
+
+The proportion of correct predictions out of total predictions.
+
+```python
+accuracy = (TP + TN) / (TP + TN + FP + FN)
+```
+
+**When to use:** Balanced datasets where all classes are equally important
+
+**Limitations:** Misleading for imbalanced datasets (e.g., 99% class 0, 1% class 1 — predicting all class 0 gives 99% accuracy)
+
+### Precision
+
+Of all predicted positives, what proportion are actually positive?
+
+```python
+precision = TP / (TP + FP)
+```
+
+**When to use:** When false positives are costly (e.g., spam detection — marking legitimate email as spam is bad)
+
+### Recall (Sensitivity)
+
+Of all actual positives, what proportion did we correctly identify?
+
+```python
+recall = TP / (TP + FN)
+```
+
+**When to use:** When false negatives are costly (e.g., fraud detection — missing fraudulent transactions is bad)
+
+### F1 Score
+
+Harmonic mean of precision and recall, balancing both metrics.
+
+```python
+F1 = 2 * (precision * recall) / (precision + recall)
+```
+
+**When to use:** When you need a balance between precision and recall, especially with imbalanced classes
+
+### ROC-AUC (Area Under the Receiver Operating Characteristic Curve)
+
+Measures the model's ability to distinguish between classes across all classification thresholds.
+
+- **ROC curve:** Plots True Positive Rate (recall) vs False Positive Rate
+- **AUC:** Area under the ROC curve (ranges from 0 to 1, 0.5 = random guessing)
+
+**When to use:**
+- Comparing models overall performance
+- When you care about ranking/probabilities, not just classifications
+- Balanced or moderately imbalanced datasets
+
+### Log Loss (Cross-Entropy Loss)
+
+Measures the uncertainty of predictions by comparing predicted probabilities to actual labels.
+
+```python
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+evaluator = BinaryClassificationEvaluator(
+    labelCol="label",
+    rawPredictionCol="rawPrediction",
+    metricName="areaUnderROC"  # or "areaUnderPR"
+)
+auc = evaluator.evaluate(predictions)
+```
+
+**When to use:** When probabilistic predictions matter more than hard classifications
+
+### Using classification metrics in Spark
+
+```python
+from pyspark.ml.evaluation import MulticlassClassificationEvaluator
+
+# Accuracy
+evaluator = MulticlassClassificationEvaluator(
+    labelCol="label",
+    predictionCol="prediction",
+    metricName="accuracy"
+)
+accuracy = evaluator.evaluate(predictions)
+
+# F1 score
+evaluator_f1 = MulticlassClassificationEvaluator(
+    labelCol="label",
+    predictionCol="prediction",
+    metricName="f1"
+)
+f1 = evaluator_f1.evaluate(predictions)
+
+# Precision and Recall
+evaluator_precision = MulticlassClassificationEvaluator(metricName="weightedPrecision")
+evaluator_recall = MulticlassClassificationEvaluator(metricName="weightedRecall")
+```
+
+## Regression Metrics
+
+> Use common regression metrics: RMSE, MAE, R-squared, etc
+
+Regression metrics evaluate how well a model predicts continuous numerical values.
+
+### RMSE (Root Mean Squared Error)
+
+Square root of the average squared differences between predictions and actual values.
+
+```python
+RMSE = sqrt(mean((y_true - y_pred)²))
+```
+
+**Characteristics:**
+- Penalizes large errors heavily (due to squaring)
+- Same units as the target variable
+- More sensitive to outliers than MAE
+
+**When to use:** When large errors are particularly undesirable
+
+### MAE (Mean Absolute Error)
+
+Average absolute differences between predictions and actual values.
+
+```python
+MAE = mean(|y_true - y_pred|)
+```
+
+**Characteristics:**
+- Linear penalty for errors
+- More robust to outliers than RMSE
+- Same units as the target variable
+
+**When to use:** When all errors are equally important regardless of magnitude
+
+### R-squared (Coefficient of Determination)
+
+Proportion of variance in the target variable explained by the model.
+
+```python
+R² = 1 - (SS_residual / SS_total)
+```
+
+**Range:** 0 to 1 (can be negative for very poor models)
+- **1.0** = Perfect predictions
+- **0.0** = Model performs as well as predicting the mean
+- **Negative** = Model performs worse than predicting the mean
+
+**When to use:** Understanding how much variance your model explains
+
+### Using regression metrics in Spark
+
+```python
+from pyspark.ml.evaluation import RegressionEvaluator
+
+# RMSE
+evaluator_rmse = RegressionEvaluator(
+    labelCol="label",
+    predictionCol="prediction",
+    metricName="rmse"
+)
+rmse = evaluator_rmse.evaluate(predictions)
+
+# MAE
+evaluator_mae = RegressionEvaluator(metricName="mae")
+mae = evaluator_mae.evaluate(predictions)
+
+# R-squared
+evaluator_r2 = RegressionEvaluator(metricName="r2")
+r2 = evaluator_r2.evaluate(predictions)
+```
+
+## Choosing the Right Metric
+
+> Choose the most appropriate metric for a given scenario objective
+
+The choice of metric depends on your business objective and data characteristics:
+
+### Classification scenarios
+
+| Scenario | Recommended Metric | Rationale |
+|----------|-------------------|-----------|
+| Balanced classes, all errors equally important | Accuracy | Simple, interpretable |
+| Imbalanced classes | F1, Precision, Recall, AUC-PR | Accuracy is misleading |
+| False positives are costly | Precision | Minimize incorrectly flagging negatives |
+| False negatives are costly | Recall | Minimize missing positives |
+| Need probabilistic predictions | Log Loss, ROC-AUC | Evaluate probability calibration |
+| Ranking/ordering matters | ROC-AUC | Measures discrimination ability |
+
+### Regression scenarios
+
+| Scenario | Recommended Metric | Rationale |
+|----------|-------------------|-----------|
+| Large errors particularly bad | RMSE | Penalizes large errors |
+| Outliers present | MAE | Robust to outliers |
+| Need interpretability | R-squared | Shows explained variance |
+| Different scales across features | RMSE or MAE | Provide absolute error magnitude |
+
+## Log-Transformed Variables
+
+> Identify the need to exponentiate log-transformed variables before calculating evaluation metrics or interpreting predictions
+
+When you apply log transformation to the target variable during training (e.g., `log(price)` instead of `price`), you must **exponentiate predictions** back to the original scale before:
+
+1. **Calculating evaluation metrics** — Metrics should be computed on the original scale for meaningful interpretation
+2. **Presenting predictions to stakeholders** — Users need predictions in original units
+3. **Making business decisions** — Decisions require values in real-world units
+
+### Example workflow
+
+```python
+from pyspark.sql import functions as F
+
+# Training: log-transform target
+train_df = df.withColumn("log_price", F.log(F.col("price") + 1))
+
+# Train model on log-transformed target
+model = train_model(train_df, label_col="log_price")
+
+# Make predictions (in log space)
+predictions_log = model.transform(test_df)
+
+# Exponentiate predictions back to original scale
+predictions_original = predictions_log.withColumn(
+    "price_prediction",
+    F.exp(F.col("prediction")) - 1  # Reverse log(x + 1)
+)
+
+# Now calculate metrics on original scale
+evaluator = RegressionEvaluator(
+    labelCol="price",  # Original scale
+    predictionCol="price_prediction",  # Original scale
+    metricName="rmse"
+)
+rmse_original_scale = evaluator.evaluate(predictions_original)
+```
+
+### Why this matters
+
+Evaluating log-scale predictions directly gives you error in log space, which:
+- Doesn't match business requirements (e.g., RMSE in log-dollars vs actual dollars)
+- Makes it hard to interpret model performance
+- Can lead to incorrect decisions about model quality
+
+**Example:** If log-RMSE is 0.5, the actual prediction error varies wildly depending on the magnitude of the values.
+
+## Bias-Variance Tradeoff
+
+> Assess the impact of model complexity and the bias-variance tradeoff on model performance
+
+The bias-variance tradeoff describes the relationship between model complexity, training error, and generalization error.
+
+### Bias
+
+**Bias** is the error from overly simplistic assumptions in the learning algorithm. High bias causes the model to miss relevant relationships (underfitting).
+
+**Characteristics:**
+- Poor performance on training data
+- Poor performance on test data
+- Model is too simple for the problem
+
+**Example:** Using linear regression for a highly non-linear relationship
+
+### Variance
+
+**Variance** is the error from sensitivity to small fluctuations in the training data. High variance causes the model to model random noise (overfitting).
+
+**Characteristics:**
+- Excellent performance on training data
+- Poor performance on test data
+- Model is too complex, memorizing training data
+
+**Example:** Deep decision tree with no regularization
+
+### Finding the balance
+
+**Low complexity models** (e.g., linear regression, shallow trees):
+- High bias, low variance
+- Underfit the data
+- Poor training and test performance
+
+**High complexity models** (e.g., deep neural networks, deep trees):
+- Low bias, high variance
+- Overfit the data
+- Good training performance, poor test performance
+
+**Optimal complexity:**
+- Balanced bias and variance
+- Good performance on both training and test data
+- Generalizes well to new data
+
+### Techniques to manage the tradeoff
+
+**Reduce variance (combat overfitting):**
+- Regularization (L1/L2)
+- Early stopping
+- Pruning (for trees)
+- Dropout (for neural networks)
+- Increase training data
+- Feature selection
+- Cross-validation for model selection
+
+**Reduce bias (combat underfitting):**
+- Add more features
+- Increase model complexity
+- Reduce regularization
+- Use more expressive model classes
+
+### Detecting bias vs variance issues
+
+```python
+# Compare training vs test performance
+train_rmse = evaluate_model(model, train_df)
+test_rmse = evaluate_model(model, test_df)
+
+if train_rmse > acceptable_threshold:
+    print("High bias - model is underfitting")
+    print("Consider: more complex model, more features")
+elif test_rmse >> train_rmse:
+    print("High variance - model is overfitting")
+    print("Consider: regularization, more data, simpler model")
+else:
+    print("Model appears well-balanced")
+```

@@ -2,7 +2,9 @@
 title: "MLflow"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [MLflow on Databricks](https://docs.databricks.com/aws/en/mlflow/index)
 - [Experiment tracking using Databricks](https://docs.databricks.com/aws/en/mlflow/tracking)
@@ -10,4 +12,289 @@ title: "MLflow"
 - [Track and compare models using MLflow Logged Models](https://docs.databricks.com/aws/en/mlflow/logged-model)
 - [MLflow 3 deployment jobs](https://docs.databricks.com/aws/en/mlflow/deployment-job)
 - [Model Registry improvements with MLflow 3](https://docs.databricks.com/aws/en/mlflow/model-registry-3)
+
+## What is MLflow?
+
+MLflow is the largest open source AI engineering platform for agents, LLMs, and ML models. It enables teams to debug, evaluate, monitor, and optimize production AI applications while managing costs and controlling access to models and data.
+
+MLflow provides native SDKs for Python, TypeScript/JavaScript, Java, and R, supporting any LLM provider, agent framework, and ML library.
+
+### Core capabilities
+
+**Experiment tracking** — Log parameters, metrics, and artifacts during model training to compare different approaches and identify the best performing models.
+
+**Model evaluation** — Tools for measuring and improving model quality through systematic evaluation.
+
+**Model registry** — Production model registry integrated with Unity Catalog for centralized governance, access control, and lineage tracking.
+
+**Model deployment** — Deploy models through Databricks Model Serving with automatic capture of requests and responses for monitoring.
+
+**Prompt management** — For generative AI applications, manage versioning and iteration on prompt templates.
+
+**MLflow Tracing** — Observability for generative AI applications to record inputs, outputs, and metadata for each request step.
+
+## Experiment Tracking
+
+MLflow tracking organizes model development through three key components:
+
+- **Runs** — Single executions of model code where you log parameters and results
+- **Experiments** — Collections of related runs for comparison and filtering
+- **Models** — Artifacts representing trained machine learning models
+
+### Logging metrics, artifacts, and models
+
+> Manually log metrics, artifacts, and models in an MLflow Run
+
+You can log data to MLflow runs using two approaches:
+
+**Autologging** — The simplest approach that automatically captures training data from popular frameworks like scikit-learn, XGBoost, TensorFlow, and PyTorch:
+
+```python
+import mlflow
+
+# Enable autologging for your framework
+mlflow.autolog()
+
+# Train your model - parameters and metrics logged automatically
+model.fit(X_train, y_train)
+```
+
+**Manual logging API** — For granular control, use the Python logging API to manually record parameters, metrics, tags, and artifacts:
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Log parameters
+    mlflow.log_param("learning_rate", 0.01)
+    mlflow.log_param("max_depth", 5)
+
+    # Log metrics
+    mlflow.log_metric("accuracy", 0.95)
+    mlflow.log_metric("f1_score", 0.92)
+
+    # Log artifacts (files, plots, etc.)
+    mlflow.log_artifact("confusion_matrix.png")
+
+    # Log the model
+    mlflow.sklearn.log_model(model, "model")
+```
+
+### Information available in the MLflow UI
+
+> Identify information available in the MLflow UI
+
+The MLflow UI provides comprehensive visibility into your experiments:
+
+- **Experiment overview** — List of all runs with their parameters, metrics, and status
+- **Run comparison** — Side-by-side comparison of multiple runs to identify the best configuration
+- **Metrics visualization** — Charts and graphs showing metric values over time or across runs
+- **Parameters and tags** — All logged parameters and custom tags for filtering and organization
+- **Artifacts** — Downloadable files including models, plots, data files, and notebooks
+- **Model information** — Signatures, requirements, and framework details for logged models
+- **Lineage** — Dataset inputs and upstream dependencies when tracked with `mlflow.log_input()`
+- **Source code** — Git commit information and notebook revisions
+
+### Finding the best run
+
+> Identify the best run using the MLflow Client API
+
+You can programmatically find the best run using the MLflow Client API:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Search for the best run by a specific metric
+runs = client.search_runs(
+    experiment_ids=["experiment_id"],
+    order_by=["metrics.accuracy DESC"],
+    max_results=1
+)
+
+best_run = runs[0]
+print(f"Best run ID: {best_run.info.run_id}")
+print(f"Best accuracy: {best_run.data.metrics['accuracy']}")
+```
+
+You can also use pandas DataFrame queries:
+
+```python
+import mlflow
+
+# Get all runs as a DataFrame
+df = mlflow.search_runs(experiment_ids=["experiment_id"])
+
+# Find the run with the best metric
+best_run = df.loc[df['metrics.accuracy'].idxmax()]
+```
+
+## Model Registry with Unity Catalog
+
+Databricks recommends Models in Unity Catalog for governing and deploying ML models. This hosted MLflow Model Registry provides centralized access control, auditing, lineage, and model discovery across workspaces.
+
+### Registering models in Unity Catalog
+
+> Register a model using the MLflow Client API in the Unity Catalog registry
+
+Models can be registered using the three-level naming format `<catalog>.<schema>.<model>`:
+
+```python
+import mlflow
+
+# Register model from a run
+mlflow.register_model(
+    model_uri=f"runs:/{run_id}/model",
+    name="main.ml_models.customer_churn"
+)
+```
+
+You can also use autologging, which automatically captures signatures for popular ML frameworks and simplifies the registration workflow.
+
+### Requirements
+
+- Unity Catalog metastore enabled
+- Databricks Runtime 13.2 ML or above
+- `CREATE MODEL` privilege on the target schema
+
+## Unity Catalog vs Workspace Registry
+
+> Identify benefits of registering models in the Unity Catalog registry over the workspace registry
+
+Unity Catalog provides significant advantages over the legacy Workspace Model Registry:
+
+**Cross-workspace model sharing** — Models registered in Unity Catalog are accessible across all workspaces in your account, enabling teams to discover and deploy models created by other teams. Workspace registry models are isolated to a single workspace.
+
+**Centralized access control** — Unity Catalog provides fine-grained permissions at the catalog, schema, and model levels with privilege inheritance. You can control who can view, use, or modify models across your entire organization.
+
+**Comprehensive audit logging** — All model access and modifications are tracked in Unity Catalog activity logs, providing complete visibility for compliance and governance.
+
+**Lineage tracking** — When you use `mlflow.log_input()` to capture upstream datasets, this lineage information is visible in the Unity Catalog UI, making it easy to understand data dependencies.
+
+**Future-proof** — Unity Catalog is the recommended approach for all new model registry implementations, receiving ongoing feature development and enhancements.
+
+## Model Deployment Patterns
+
+> Identify scenarios where promoting code is preferred over promoting models and vice versa
+
+As discussed in the MLOps section, there are two primary approaches to promoting ML artifacts across environments:
+
+### Promote code (recommended)
+
+The same training code is promoted from development → staging → production, with the model retrained in each environment.
+
+**When to use:**
+- Production data cannot be accessed from development environments
+- You need automated retraining with governance and code review
+- Feature engineering, inference, and monitoring code must be deployed alongside training code
+- Standard ML workflows where training cost is reasonable
+
+### Promote models
+
+The model artifact is trained in development, tested in staging, and promoted to production without retraining.
+
+**When to use:**
+- Model training is extremely expensive or computationally intensive
+- Training is difficult to reproduce (e.g., uses external data sources no longer available)
+- You're working in a single workspace without an external CI/CD process
+- Quick iterations are needed and production data is accessible from development
+
+## Working with Model Metadata
+
+### Setting and removing tags
+
+> Set or remove a tag for a model
+
+Tags are key-value pairs that help categorize and organize models:
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Set a tag on a registered model
+client.set_registered_model_tag(
+    name="main.ml_models.customer_churn",
+    key="task",
+    value="classification"
+)
+
+# Remove a tag
+client.delete_registered_model_tag(
+    name="main.ml_models.customer_churn",
+    key="task"
+)
+```
+
+You can also set tags on specific model versions:
+
+```python
+# Set a tag on a model version
+client.set_model_version_tag(
+    name="main.ml_models.customer_churn",
+    version="1",
+    key="validation_status",
+    value="approved"
+)
+```
+
+## Model Aliases
+
+> Promote a challenger model to a champion model using aliases
+
+Aliases provide mutable references to specific model versions, enabling deployment status management without changing inference code.
+
+### Setting up Champion and Challenger pattern
+
+```python
+from mlflow.tracking import MlflowClient
+
+client = MlflowClient()
+
+# Assign "Champion" alias to the current production model (version 3)
+client.set_registered_model_alias(
+    name="main.ml_models.customer_churn",
+    alias="Champion",
+    version="3"
+)
+
+# Assign "Challenger" alias to the new candidate model (version 4)
+client.set_registered_model_alias(
+    name="main.ml_models.customer_churn",
+    alias="Challenger",
+    version="4"
+)
+```
+
+### Promoting Challenger to Champion
+
+After validation shows the Challenger outperforms the Champion:
+
+```python
+# Promote the Challenger by reassigning the Champion alias
+client.set_registered_model_alias(
+    name="main.ml_models.customer_churn",
+    alias="Champion",
+    version="4"  # Points to the new version
+)
+```
+
+### Loading models by alias
+
+Inference code references models by alias rather than version number, making promotions transparent:
+
+```python
+import mlflow
+
+# Load the current Champion model
+model = mlflow.pyfunc.load_model(
+    "models:/main.ml_models.customer_churn@Champion"
+)
+
+# Make predictions
+predictions = model.predict(data)
+```
+
+This decouples deployments from inference workloads — when you update the Champion alias, all systems using it automatically use the new version without code changes.
 

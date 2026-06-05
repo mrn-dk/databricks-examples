@@ -2,9 +2,218 @@
 title: "Feature Engineering"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Apache Spark ML Features](https://spark.apache.org/docs/latest/ml-features.html)
 - [MLlib Programming Guide](https://spark.apache.org/docs/latest/ml-guide.html)
 - [Use Apache Spark MLlib on Databricks](https://docs.databricks.com/aws/en/machine-learning/train-model/mllib)
 - [Databricks Feature Store](https://docs.databricks.com/aws/en/machine-learning/feature-store/index)
+
+## Imputing Missing Values
+
+Missing values are common in real-world datasets and must be handled appropriately to avoid errors during model training and to maintain data quality.
+
+### Comparison of imputation methods
+
+> Compare and contrast imputing missing values with the mean or median or mode value
+
+Different imputation strategies are appropriate for different data types and distributions:
+
+**Mean imputation** — Replaces missing values with the average of non-null values in the column.
+- **Advantages**: Simple to compute; preserves the overall average of the feature
+- **Disadvantages**: Sensitive to outliers; not appropriate for skewed distributions; only works for numeric data
+- **When to use**: Normally distributed numeric data without significant outliers
+
+**Median imputation** — Replaces missing values with the middle value when data is sorted.
+- **Advantages**: Robust to outliers; works well with skewed distributions
+- **Disadvantages**: Only works for numeric data; may not preserve relationships between features
+- **When to use**: Numeric data with outliers or skewed distributions
+
+**Mode imputation** — Replaces missing values with the most frequently occurring value.
+- **Advantages**: Works for both categorical and numeric data; preserves the most common category
+- **Disadvantages**: May introduce bias toward the dominant category; not meaningful for continuous data with unique values
+- **When to use**: Categorical features or discrete numeric features with repeated values
+
+### Imputing missing values in Spark
+
+> Impute missing values with the mode, mean, or median value
+
+Spark MLlib provides the `Imputer` transformer for handling missing values:
+
+```python
+from pyspark.ml.feature import Imputer
+
+# Mean imputation (default)
+imputer_mean = Imputer(
+    inputCols=["age", "income"],
+    outputCols=["age_imputed", "income_imputed"],
+    strategy="mean"  # or "median"
+)
+
+# Fit and transform
+imputer_model = imputer_mean.fit(df)
+df_imputed = imputer_model.transform(df)
+```
+
+For median imputation, change the strategy parameter:
+
+```python
+# Median imputation
+imputer_median = Imputer(
+    inputCols=["age", "income"],
+    outputCols=["age_imputed", "income_imputed"],
+    strategy="median"
+)
+```
+
+For mode imputation (categorical features), you can use Spark SQL:
+
+```python
+from pyspark.sql import functions as F
+
+# Find the mode
+mode_value = df.groupBy("category").count() \
+    .orderBy(F.desc("count")) \
+    .first()[0]
+
+# Impute with mode
+df_imputed = df.fillna({"category": mode_value})
+```
+
+Alternatively, use `fillna()` for simple imputation:
+
+```python
+from pyspark.sql import functions as F
+
+# Mean imputation using fillna
+mean_age = df.select(F.mean("age")).first()[0]
+df_imputed = df.fillna({"age": mean_age})
+```
+
+## One-Hot Encoding
+
+One-hot encoding converts categorical variables into a binary vector representation, creating a new binary column for each category.
+
+### Using one-hot encoding
+
+> Use one-hot encoding for categorical features
+
+Spark MLlib provides `StringIndexer` and `OneHotEncoder` for encoding categorical features:
+
+```python
+from pyspark.ml.feature import StringIndexer, OneHotEncoder
+from pyspark.ml import Pipeline
+
+# Step 1: Convert string categories to numeric indices
+indexer = StringIndexer(
+    inputCol="category",
+    outputCol="category_index"
+)
+
+# Step 2: One-hot encode the indices
+encoder = OneHotEncoder(
+    inputCols=["category_index"],
+    outputCols=["category_encoded"]
+)
+
+# Create pipeline
+pipeline = Pipeline(stages=[indexer, encoder])
+model = pipeline.fit(df)
+df_encoded = model.transform(df)
+```
+
+For multiple categorical columns:
+
+```python
+# Index multiple columns
+indexers = [
+    StringIndexer(inputCol=col, outputCol=f"{col}_index")
+    for col in ["category1", "category2", "category3"]
+]
+
+# Encode multiple columns
+encoder = OneHotEncoder(
+    inputCols=[f"{col}_index" for col in ["category1", "category2", "category3"]],
+    outputCols=[f"{col}_encoded" for col in ["category1", "category2", "category3"]]
+)
+
+pipeline = Pipeline(stages=indexers + [encoder])
+```
+
+### When one-hot encoding is appropriate
+
+> Identify and explain the model types or data sets for which one-hot encoding is or is not appropriate
+
+**One-hot encoding is appropriate for:**
+
+- **Tree-based models** (Decision Trees, Random Forests, Gradient Boosting) — These models can handle one-hot encoded features efficiently, though label encoding also works well
+- **Linear models** (Logistic Regression, Linear Regression) — Require one-hot encoding because they need to treat each category independently without imposing ordinal relationships
+- **Neural networks** — Benefit from one-hot encoding as it prevents the model from learning spurious ordinal relationships
+- **Low-cardinality features** — Categories with a small number of unique values (typically < 50)
+
+**One-hot encoding is NOT appropriate for:**
+
+- **High-cardinality features** — Categories with many unique values (e.g., zip codes, user IDs) create a very wide, sparse feature matrix that:
+  - Increases memory usage dramatically
+  - Slows down training
+  - Can lead to overfitting
+  - Alternative: Use target encoding, embeddings, or feature hashing instead
+
+- **Ordinal categories** — When categories have a natural order (e.g., "low", "medium", "high"), label encoding preserves this relationship better than one-hot encoding
+
+- **When using algorithms that handle categorical data natively** — Some implementations (e.g., LightGBM, CatBoost) can work directly with categorical features without encoding
+
+## Log Scale Transformation
+
+> Identify scenarios where log scale transformation is appropriate
+
+Log transformation applies the natural logarithm (or log base 10) to numerical features, which can improve model performance in specific scenarios.
+
+### When to use log transformation
+
+**Right-skewed distributions** — When data has a long tail on the right side (many small values, few very large values), log transformation makes the distribution more symmetric and closer to normal. This benefits algorithms that assume normally distributed features (e.g., Linear Regression, Naive Bayes).
+
+**Features with multiplicative relationships** — When the relationship between features is multiplicative rather than additive (e.g., compound interest, population growth), log transformation converts it to an additive relationship that linear models can capture.
+
+**Features spanning multiple orders of magnitude** — When feature values range from very small to very large (e.g., 10 to 1,000,000), log transformation compresses the scale and prevents large values from dominating the model.
+
+**Heteroscedasticity reduction** — When variance increases with the mean (common in economic data, counts), log transformation can stabilize variance.
+
+**Common examples**:
+- Income or salary data
+- Population counts
+- Housing prices
+- Web traffic metrics
+- Transaction amounts
+
+### Applying log transformation in Spark
+
+```python
+from pyspark.sql import functions as F
+
+# Natural log transformation
+df_transformed = df.withColumn(
+    "income_log",
+    F.log("income")
+)
+
+# Log base 10 transformation
+df_transformed = df.withColumn(
+    "income_log10",
+    F.log10("income")
+)
+
+# Handle zero and negative values by adding a constant
+df_transformed = df.withColumn(
+    "income_log",
+    F.log(F.col("income") + 1)  # log1p transformation
+)
+```
+
+### Important considerations
+
+- **Zero and negative values** — Log is undefined for zero and negative values. Add a small constant (e.g., `log(x + 1)`) or use `log1p` which computes `log(1 + x)` more accurately for small values.
+- **Interpretation** — Log-transformed features change the interpretation of model coefficients. A one-unit change in the log-transformed feature represents a multiplicative change in the original scale.
+- **Inverse transformation** — When making predictions with log-transformed target variables, remember to exponentiate the predictions to get them back to the original scale.

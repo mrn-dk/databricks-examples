@@ -2,9 +2,218 @@
 title: "Model Selection"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Train AI and ML models](https://docs.databricks.com/aws/en/machine-learning/train-model/index)
 - [Use Apache Spark MLlib on Databricks](https://docs.databricks.com/aws/en/machine-learning/train-model/mllib)
 - [Machine learning training examples](https://docs.databricks.com/aws/en/machine-learning/train-model/training-examples)
 - [Apache Spark ML Pipelines](https://spark.apache.org/docs/latest/ml-pipeline.html)
+
+## Selecting the Appropriate Algorithm
+
+> Use ML foundations to select the appropriate algorithm for a given model scenario
+
+The choice of algorithm depends on your problem type, data characteristics, and requirements. Here's a guide to selecting appropriate algorithms for common scenarios:
+
+### Classification problems
+
+**Logistic Regression** — Use when:
+- You need interpretable coefficients
+- The relationship between features and target is approximately linear
+- You have limited training data
+- Fast training and inference are important
+
+**Random Forest / Gradient Boosting** — Use when:
+- You need high accuracy
+- Features have non-linear relationships
+- You can tolerate longer training times
+- You want built-in feature importance
+- Data contains missing values (handled automatically)
+
+**Support Vector Machines (SVM)** — Use when:
+- You have a small to medium dataset
+- Data is high-dimensional
+- You need good performance with limited data
+- Classes are well-separated
+
+### Regression problems
+
+**Linear Regression** — Use when:
+- The relationship is approximately linear
+- You need interpretable coefficients
+- Fast training is important
+- You want to understand feature contributions
+
+**Decision Tree Regression / Random Forest / Gradient Boosting** — Use when:
+- Relationships are non-linear
+- You have interaction effects between features
+- You need robust performance with outliers
+- High accuracy is more important than interpretability
+
+### Clustering problems
+
+**K-Means** — Use when:
+- Clusters are spherical and similar in size
+- You know the number of clusters
+- Fast computation is important
+
+**Hierarchical Clustering** — Use when:
+- You don't know the number of clusters in advance
+- You want to explore cluster relationships
+- Data size is manageable (not billions of rows)
+
+### Dimensionality reduction
+
+**PCA (Principal Component Analysis)** — Use when:
+- You need to reduce feature dimensions
+- Features are numeric and continuous
+- You want to remove multicollinearity
+- Visualization of high-dimensional data is needed
+
+## Handling Data Imbalance
+
+> Identify methods to mitigate data imbalance in training data
+
+Imbalanced datasets occur when one class has significantly more examples than another (e.g., fraud detection where 99% of transactions are legitimate). This can cause models to be biased toward the majority class.
+
+### Resampling techniques
+
+**Undersampling** — Randomly remove examples from the majority class:
+
+```python
+# Example: undersample the majority class
+majority_df = df.filter(df.label == 0)
+minority_df = df.filter(df.label == 1)
+
+# Sample majority to match minority count
+majority_undersampled = majority_df.sample(
+    fraction=minority_df.count() / majority_df.count()
+)
+
+balanced_df = majority_undersampled.union(minority_df)
+```
+
+**Oversampling** — Duplicate examples from the minority class:
+
+```python
+# Calculate oversampling ratio
+ratio = majority_df.count() / minority_df.count()
+
+# Oversample minority class
+minority_oversampled = minority_df.sample(
+    withReplacement=True,
+    fraction=ratio
+)
+
+balanced_df = majority_df.union(minority_oversampled)
+```
+
+**SMOTE (Synthetic Minority Over-sampling Technique)** — Generate synthetic examples for the minority class by interpolating between existing examples.
+
+### Algorithm-level techniques
+
+**Class weights** — Many algorithms support class weights that penalize misclassification of minority classes more heavily:
+
+```python
+from pyspark.ml.classification import LogisticRegression
+
+# Calculate inverse class frequencies as weights
+total = df.count()
+class_0_count = df.filter(df.label == 0).count()
+class_1_count = df.filter(df.label == 1).count()
+
+weight_0 = total / (2 * class_0_count)
+weight_1 = total / (2 * class_1_count)
+
+# Map weights to instances
+df_weighted = df.withColumn(
+    "weight",
+    when(col("label") == 0, weight_0).otherwise(weight_1)
+)
+
+# Train with weights
+lr = LogisticRegression(weightCol="weight")
+```
+
+**Threshold adjustment** — For probabilistic classifiers, adjust the decision threshold based on business requirements rather than using the default 0.5.
+
+### Evaluation metric selection
+
+For imbalanced datasets, avoid accuracy as your primary metric. Instead use:
+- **Precision** — Of predicted positives, how many are correct
+- **Recall** — Of actual positives, how many were found
+- **F1-score** — Harmonic mean of precision and recall
+- **AUC-ROC** — Area under the receiver operating characteristic curve
+- **AUC-PR** — Area under the precision-recall curve (better for highly imbalanced data)
+
+## Estimators vs Transformers
+
+> Compare estimators and transformers
+
+Spark MLlib distinguishes between two types of pipeline components:
+
+### Transformers
+
+A **Transformer** is an algorithm that transforms one DataFrame into another DataFrame.
+
+**Characteristics:**
+- Has a `transform()` method
+- Does not learn from data (stateless or uses pre-learned parameters)
+- Produces a new DataFrame with additional columns or modified columns
+
+**Examples:**
+- `Tokenizer` — Converts text into words
+- `OneHotEncoder` — Converts categorical indices to binary vectors
+- `VectorAssembler` — Combines multiple columns into a single vector column
+- Trained models (after fitting) — Apply learned transformations
+
+```python
+from pyspark.ml.feature import Tokenizer
+
+tokenizer = Tokenizer(inputCol="text", outputCol="words")
+df_transformed = tokenizer.transform(df)  # No fitting needed
+```
+
+### Estimators
+
+An **Estimator** is an algorithm that can be fit on a DataFrame to produce a Transformer.
+
+**Characteristics:**
+- Has a `fit()` method that learns from data
+- Returns a Transformer (a Model) after fitting
+- Must be trained before it can transform data
+
+**Examples:**
+- `LogisticRegression` — Learns coefficients, returns a LogisticRegressionModel
+- `StringIndexer` — Learns category mappings, returns a StringIndexerModel
+- `Imputer` — Learns mean/median values, returns an ImputerModel
+- `StandardScaler` — Learns mean and standard deviation, returns a StandardScalerModel
+
+```python
+from pyspark.ml.feature import StringIndexer
+
+# Estimator
+indexer = StringIndexer(inputCol="category", outputCol="category_index")
+
+# Fit to learn the mapping (returns a Model, which is a Transformer)
+indexer_model = indexer.fit(df)
+
+# Transform using the learned mapping
+df_transformed = indexer_model.transform(df)
+```
+
+### Summary
+
+| Aspect | Transformer | Estimator |
+|--------|-------------|-----------|
+| Method | `transform()` | `fit()` |
+| Learning | No (or uses pre-learned params) | Yes |
+| Returns | DataFrame | Transformer (Model) |
+| Examples | Tokenizer, VectorAssembler, Trained models | LogisticRegression, StringIndexer, StandardScaler |
+
+In a typical ML pipeline:
+1. Estimators are fit on training data to learn parameters
+2. Fitted estimators become Transformers (models)
+3. Transformers are applied to transform both training and test data consistently

@@ -2,10 +2,328 @@
 title: "Hyperparameter Tuning"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Hyperparameter tuning overview](https://docs.databricks.com/aws/en/machine-learning/automl-hyperparam-tuning/index)
 - [Hyperparameter tuning with Optuna](https://docs.databricks.com/aws/en/machine-learning/automl-hyperparam-tuning/optuna)
 - [Use distributed training algorithms with Hyperopt](https://docs.databricks.com/aws/en/machine-learning/automl-hyperparam-tuning/hyperopt-distributed-ml)
 - [What is Ray on Databricks?](https://docs.databricks.com/aws/en/machine-learning/ray/)
 - [Databricks Autologging](https://docs.databricks.com/aws/en/mlflow/databricks-autologging)
+
+## Hyperparameter Tuning Methods
+
+> Perform random or grid search or Bayesian search as a method for tuning hyperparameters
+
+Hyperparameter tuning involves systematically searching for the best combination of hyperparameters to optimize model performance. Three primary search strategies exist:
+
+### Grid Search
+
+Grid search exhaustively evaluates all possible combinations of hyperparameters from specified value sets.
+
+**Advantages:**
+- Guaranteed to find the best combination within the search space
+- Simple and straightforward to understand
+- Works well for small search spaces
+
+**Disadvantages:**
+- Computationally expensive for large search spaces
+- Searches every combination, including unlikely candidates
+- Time grows exponentially with the number of hyperparameters
+
+**When to use:** Small number of hyperparameters (2-3) with limited value options
+
+```python
+from pyspark.ml.tuning import ParamGridBuilder, CrossValidator
+from pyspark.ml.classification import RandomForestClassifier
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+# Create model
+rf = RandomForestClassifier()
+
+# Build parameter grid
+param_grid = (ParamGridBuilder()
+    .addGrid(rf.numTrees, [10, 20, 50])
+    .addGrid(rf.maxDepth, [5, 10, 15])
+    .addGrid(rf.minInstancesPerNode, [1, 5])
+    .build())
+
+# Total combinations: 3 × 3 × 2 = 18 models
+
+# Create cross validator
+cv = CrossValidator(
+    estimator=rf,
+    estimatorParamMaps=param_grid,
+    evaluator=BinaryClassificationEvaluator(),
+    numFolds=3
+)
+
+# Fit and find best model
+cv_model = cv.fit(train_df)
+best_model = cv_model.bestModel
+```
+
+### Random Search
+
+Random search samples hyperparameter combinations randomly from specified distributions.
+
+**Advantages:**
+- More efficient than grid search for large search spaces
+- Can explore a wider range of values
+- Often finds good solutions faster than grid search
+
+**Disadvantages:**
+- No guarantee of finding the absolute best combination
+- Results vary between runs (unless seed is set)
+
+**When to use:** Large search spaces, many hyperparameters, or continuous hyperparameter ranges
+
+```python
+from pyspark.ml.tuning import ParamGridBuilder, TrainValidationSplit
+import numpy as np
+
+# Random selection of parameters
+num_trees_options = np.random.choice(range(10, 100), 5).tolist()
+max_depth_options = np.random.choice(range(5, 20), 5).tolist()
+
+param_grid = (ParamGridBuilder()
+    .addGrid(rf.numTrees, num_trees_options)
+    .addGrid(rf.maxDepth, max_depth_options)
+    .build())
+
+tvs = TrainValidationSplit(
+    estimator=rf,
+    estimatorParamMaps=param_grid,
+    evaluator=BinaryClassificationEvaluator(),
+    trainRatio=0.8
+)
+```
+
+### Bayesian Search
+
+Bayesian optimization uses probabilistic models to intelligently select hyperparameter combinations, focusing on promising regions of the search space.
+
+**Advantages:**
+- More efficient than grid or random search
+- Uses previous trial results to inform next trials
+- Requires fewer evaluations to find good hyperparameters
+
+**Disadvantages:**
+- More complex to implement
+- Requires specialized libraries
+
+**When to use:** Expensive model training, large search spaces, or when evaluation time is critical
+
+Databricks recommends **Optuna** for Bayesian optimization.
+
+## Using Optuna for Hyperparameter Tuning
+
+Optuna is an open-source Python library for hyperparameter tuning that can be scaled horizontally across multiple compute resources. MLflow 3.0 integrates with Optuna to enable distributed optimization on Databricks.
+
+### Basic Optuna workflow
+
+```python
+import optuna
+from optuna.integration import mlflow as optuna_mlflow
+import mlflow
+
+def objective(trial):
+    # Define hyperparameter search space
+    n_estimators = trial.suggest_int("n_estimators", 10, 100)
+    max_depth = trial.suggest_int("max_depth", 3, 15)
+    learning_rate = trial.suggest_float("learning_rate", 0.01, 0.3)
+
+    # Train model with suggested hyperparameters
+    from sklearn.ensemble import GradientBoostingClassifier
+    model = GradientBoostingClassifier(
+        n_estimators=n_estimators,
+        max_depth=max_depth,
+        learning_rate=learning_rate
+    )
+    model.fit(X_train, y_train)
+
+    # Evaluate
+    accuracy = model.score(X_val, y_val)
+    return accuracy
+
+# Create study and optimize
+study = optuna.create_study(direction="maximize")
+study.optimize(objective, n_trials=50)
+
+# Get best parameters
+best_params = study.best_params
+print(f"Best parameters: {best_params}")
+```
+
+### Distributed Optuna with MLflow
+
+```python
+from mlflow.tracking import MlflowClient
+from optuna.integration.mlflow import MlflowStorage, MlflowSparkStudy
+
+# Create shared storage using MLflow
+storage = MlflowStorage(experiment_id="your_experiment_id")
+
+# Run distributed optimization
+spark_study = MlflowSparkStudy(
+    storage=storage,
+    study_name="hyperparameter_optimization",
+    direction="maximize"
+)
+
+# Parallelize across Spark executors
+spark_study.optimize(objective, n_trials=100, n_jobs=4)
+```
+
+## Using Hyperopt (Deprecated)
+
+> Use Hyperopt's `fmin` operation to tune a model's hyperparameters
+
+**Note:** The open-source Hyperopt is no longer maintained, and Databricks removed it from Runtime ML 16.4 LTS onwards. Databricks recommends Optuna or Ray Tune instead.
+
+For legacy code, Hyperopt's `fmin()` function minimizes an objective function:
+
+```python
+from hyperopt import fmin, tpe, hp, Trials
+
+def objective(params):
+    num_trees = int(params['num_trees'])
+    max_depth = int(params['max_depth'])
+
+    # Train and evaluate model
+    # Return metric to minimize (e.g., negative accuracy)
+    return -accuracy
+
+search_space = {
+    'num_trees': hp.quniform('num_trees', 10, 100, 1),
+    'max_depth': hp.quniform('max_depth', 3, 15, 1),
+}
+
+best = fmin(
+    fn=objective,
+    space=search_space,
+    algo=tpe.suggest,  # Tree-structured Parzen Estimator (Bayesian)
+    max_evals=50
+)
+```
+
+## Parallelizing Single-Node Models
+
+> Parallelize single node models for hyperparameter tuning
+
+For single-node ML libraries (scikit-learn, XGBoost), you can parallelize hyperparameter tuning across Spark executors:
+
+### Using Spark's Parallel Collection
+
+```python
+from pyspark.sql import SparkSession
+import pandas as pd
+
+def train_model(params):
+    from sklearn.ensemble import RandomForestClassifier
+    # Load data within executor
+    # Train and evaluate model
+    model = RandomForestClassifier(**params)
+    model.fit(X_train, y_train)
+    score = model.score(X_val, y_val)
+    return (params, score)
+
+# Define parameter combinations
+param_list = [
+    {"n_estimators": 10, "max_depth": 5},
+    {"n_estimators": 20, "max_depth": 10},
+    {"n_estimators": 50, "max_depth": 15},
+]
+
+# Parallelize across executors
+spark = SparkSession.builder.getOrCreate()
+results = spark.sparkContext.parallelize(param_list).map(train_model).collect()
+
+# Find best parameters
+best_params, best_score = max(results, key=lambda x: x[1])
+```
+
+### Using Optuna with Joblib
+
+Optuna integrates with Joblib to parallelize trials across multiple cores:
+
+```python
+from joblib import parallel_backend
+
+with parallel_backend("spark"):
+    study.optimize(objective, n_trials=100, n_jobs=-1)
+```
+
+## Cross-Validation
+
+> Perform cross-validation as a part of model fitting
+
+Cross-validation splits training data into K folds, training on K-1 folds and validating on the remaining fold, rotating through all combinations.
+
+### Benefits and downsides
+
+> Describe the benefits and downsides of using cross-validation over a train-validation split
+
+**Benefits of cross-validation:**
+- **More reliable estimates** — Uses all data for both training and validation
+- **Reduced variance** — Averaging over multiple folds provides more stable metrics
+- **Better use of data** — Particularly important when data is limited
+- **Detects overfitting** — High variance between folds indicates instability
+
+**Downsides of cross-validation:**
+- **Computational cost** — Trains K times more models than a single split
+- **Time-consuming** — Significant overhead for large datasets or slow models
+- **Not suitable for time-series** — Standard CV violates temporal ordering
+- **Complexity** — More difficult to implement and understand
+
+**When to use each:**
+- **Train-validation split** — Large datasets, fast iteration needed, time-series data
+- **Cross-validation** — Limited data, final model selection, robust evaluation needed
+
+### Implementing cross-validation in Spark
+
+```python
+from pyspark.ml.tuning import CrossValidator
+from pyspark.ml.classification import LogisticRegression
+from pyspark.ml.evaluation import BinaryClassificationEvaluator
+
+# Create model
+lr = LogisticRegression()
+
+# Create parameter grid
+param_grid = (ParamGridBuilder()
+    .addGrid(lr.regParam, [0.01, 0.1, 1.0])
+    .addGrid(lr.elasticNetParam, [0.0, 0.5, 1.0])
+    .build())
+
+# Cross validator
+cv = CrossValidator(
+    estimator=lr,
+    estimatorParamMaps=param_grid,
+    evaluator=BinaryClassificationEvaluator(),
+    numFolds=5,  # 5-fold cross-validation
+    parallelism=4  # Train 4 models in parallel
+)
+
+# Fit
+cv_model = cv.fit(train_df)
+```
+
+## Calculating Total Models Trained
+
+> Identify the number of models being trained in conjunction with a grid-search and cross-validation process
+
+The total number of models trained is:
+
+**Total Models = (Number of Parameter Combinations) × (Number of Folds)**
+
+**Example 1:** Grid search with 3 values for `numTrees` and 3 values for `maxDepth`, using 5-fold CV:
+- Parameter combinations: 3 × 3 = 9
+- Total models: 9 × 5 = **45 models**
+
+**Example 2:** Grid search with 5 values for `regParam`, 3 values for `elasticNetParam`, and 2 values for `maxIter`, using 3-fold CV:
+- Parameter combinations: 5 × 3 × 2 = 30
+- Total models: 30 × 3 = **90 models**
+
+This multiplicative effect is why hyperparameter tuning with cross-validation can be computationally expensive and why parallelization is important for efficiency.
