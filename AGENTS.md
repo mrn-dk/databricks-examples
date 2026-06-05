@@ -1,4 +1,4 @@
-# Workflows
+# Guidelines
 
 This repository uses trunk-based development, without release branches.
 
@@ -19,3 +19,7 @@ DIGIT           = %x30-39   ; 0-9
 ```
 
 This guideline is enforced through pre-commits as well.
+
+## Adding new examples
+
+Examples are built as Declarative Automation bundles (formerly Databricks Asset Bundles). This repository uses uv workspaces to manage the individual bundles and their dependencies. Use 'uv init --package' inside the examples' subfolder.
