@@ -6,7 +6,7 @@ interface Props {
   alt: string;
 }
 
-const { title, href, badge, alt } = Astro.props;
+const { title, href, badge, alt } = Astro.props as Props;
 ---
 
 <a href={href} class="cert-card">

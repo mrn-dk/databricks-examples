@@ -23,16 +23,16 @@ export default defineConfig({
           items: [
             {
               autogenerate: {
-                directory: 'examples/machine_learning_associate',
+                directory: 'machine_learning_associate',
               },
-            },
+            }
           ],
         },
       ],
       editLink: {
         baseUrl:
-          'https://github.com/mrn/databricks-examples/edit/main/',
-      },
+          'https://github.com/mrn/databricks-examples/edit/main/docs/',
+      }
     }),
   ],
 });
