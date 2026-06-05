@@ -1,9 +1,6 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
-
-const __dirname = fileURLToPath(new URL('.', import.meta.url));
+import starlightThemeNord from 'starlight-theme-nord';
 
 export default defineConfig({
   integrations: [
@@ -11,6 +8,8 @@ export default defineConfig({
       title: 'Databricks Examples',
       description:
         'Preparation guides and examples for Databricks certifications.',
+      plugins: [starlightThemeNord()],
+      customCss: ['./src/styles/custom.css'],
       social: [
         {
           icon: 'github',
@@ -36,22 +35,4 @@ export default defineConfig({
       },
     }),
   ],
-  vite: {
-    resolve: {
-      // Redirect Starlight component imports from MDX files living outside
-      // docs/ to the packages installed in docs/node_modules/.
-      alias: [
-        {
-          find: /^@astrojs\/starlight(.*)/,
-          replacement: path.resolve(__dirname, 'node_modules/@astrojs/starlight$1'),
-        },
-      ],
-    },
-    server: {
-      watch: {
-        // Also watch MDX files outside docs/ (co-located with code)
-        ignored: ['!**/examples/**'],
-      },
-    },
-  },
 });

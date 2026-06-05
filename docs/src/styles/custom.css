@@ -1,0 +1,9 @@
+/* Secondary hero button — override Astro's component-scoped CSS */
+.sl-link-button.secondary {
+  border-color: var(--sl-color-accent) !important;
+  color: var(--sl-color-accent) !important;
+}
+
+.sl-link-button.secondary:hover {
+  background-color: var(--sl-color-accent-low) !important;
+}
