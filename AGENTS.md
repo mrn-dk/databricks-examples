@@ -4,7 +4,7 @@ This repository uses trunk-based development, without release branches.
 
 ## Branching
 
-Branch follow the Conventional Branch standard. Use the following ABNF as a guideline:
+Branches follow the Conventional Branch standard. Use the following ABNF as a guideline:
 
 ```sh
 branch-name     = trunk-branch / prefixed-branch
@@ -18,7 +18,7 @@ ALPHA           = %x61-7A   ; lowercase a-z
 DIGIT           = %x30-39   ; 0-9
 ```
 
-This guideline is enforced through pre-commits as well.
+This guideline is enforced through pre-commit hooks as well.
 
 ## Adding new examples
 
