@@ -1,0 +1,98 @@
+---
+interface Props {
+  title: string;
+  href: string;
+  badge: string;
+  alt: string;
+}
+
+const { title, href, badge, alt } = Astro.props as Props;
+---
+
+<a href={href} class="cert-card">
+  <img src={badge} alt={alt} class="cert-card__img" />
+  <div class="cert-card__bar">
+    <div class="cert-card__text">
+      <span class="cert-card__title">{title}</span>
+      <span class="cert-card__desc"><slot /></span>
+    </div>
+    <svg class="cert-card__arrow" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M5 12h14"/><path d="m12 5 7 7-7 7"/>
+    </svg>
+  </div>
+</a>
+
+<style>
+  .cert-card {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    border: 1px solid var(--sl-color-gray-5);
+    border-radius: 0.75rem;
+    overflow: hidden;
+    text-decoration: none;
+    color: inherit;
+    aspect-ratio: 3 / 4;
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  }
+
+  .cert-card:hover {
+    border-color: var(--sl-color-accent);
+    box-shadow: 0 0 0 1px var(--sl-color-accent);
+  }
+
+  .cert-card:hover .cert-card__arrow {
+    transform: translateX(3px);
+  }
+
+  .cert-card__img {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    padding: 1.5rem 1.5rem 5rem;
+  }
+
+  .cert-card__bar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+    padding: 0.85rem 1rem;
+    background: var(--sl-color-bg-sidebar);
+    border-top: 1px solid var(--sl-color-gray-5);
+  }
+
+  .cert-card__text {
+    display: flex;
+    flex-direction: column;
+    gap: 0.1rem;
+    min-width: 0;
+  }
+
+  .cert-card__title {
+    font-size: var(--sl-text-base);
+    font-weight: 600;
+    color: var(--sl-color-white);
+    line-height: 1.3;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .cert-card__desc {
+    font-size: var(--sl-text-xs);
+    color: var(--sl-color-gray-2);
+    line-height: 1.3;
+  }
+
+  .cert-card__arrow {
+    flex-shrink: 0;
+    color: var(--sl-color-accent);
+    transition: transform 0.2s ease;
+  }
+</style>
+

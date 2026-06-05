@@ -1,0 +1,13 @@
+# Build output
+dist/
+
+# Astro generated files
+.astro/
+
+# Node dependencies
+node_modules/
+
+# Local env files
+.env
+.env.*
+!.env.example

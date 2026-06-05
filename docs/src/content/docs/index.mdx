@@ -1,0 +1,52 @@
+---
+title: Databricks Certification Examples
+description: Preparation guides and worked examples for Databricks certification exams.
+head:
+  - tag: title
+    content: Databricks Certification Examples
+template: splash
+editUrl: false
+hero:
+  tagline: Intuition-first certification preparation for Databricks exams.
+  image:
+    file: ../../assets/hero.png
+  actions:
+    - text: Machine Learning Associate
+      link: /machine_learning_associate/
+      icon: right-arrow
+    - text: View on GitHub
+      link: https://github.com/mrn/databricks-examples
+      icon: github
+      variant: secondary
+---
+
+import CertCard from '../../components/CertCard.astro';
+
+## Available guides
+
+<div style="display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 1rem;">
+  <CertCard
+    title="Machine Learning Associate"
+    href="/machine_learning_associate/"
+    badge="/images/associate-badge-ml.png"
+    alt="Databricks Machine Learning Associate badge"
+  >
+    Exam prep and worked examples.
+  </CertCard>
+  <CertCard
+    title="Data Engineering Associate"
+    href="/data_engineer_associate/"
+    badge="/images/associate-badge-de.png"
+    alt="Databricks Data Engineering Associate badge"
+  >
+    Exam prep and worked examples.
+  </CertCard>
+  <CertCard
+    title="Generative AI Associate"
+    href="/generative_ai_associate/"
+    badge="/images/associate-badge-gen-ai.png"
+    alt="Databricks Generative AI Associate badge"
+  >
+    Exam prep and worked examples.
+  </CertCard>
+</div>
