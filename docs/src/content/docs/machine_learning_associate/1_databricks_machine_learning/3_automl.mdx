@@ -2,7 +2,9 @@
 title: "AutoML"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [What is AutoML?](https://docs.databricks.com/aws/en/machine-learning/automl/index)
 - [AutoML for regression](https://docs.databricks.com/aws/en/machine-learning/automl/regression)
@@ -10,4 +12,69 @@ title: "AutoML"
 - [AutoML for forecasting](https://docs.databricks.com/aws/en/machine-learning/automl/forecasting)
 - [AutoML Python API reference](https://docs.databricks.com/aws/en/machine-learning/automl/automl-api-reference)
 - [Feature store integration](https://docs.databricks.com/aws/en/machine-learning/automl/feature-store-integration)
+
+## What is AutoML?
+
+> Identify how AutoML facilitates model/feature selection
+
+AutoML (Automated Machine Learning) in Databricks automates the process of algorithm selection and hyperparameter optimization. Instead of manually testing different models and tuning parameters, you provide a dataset and specify the problem type, and AutoML identifies the optimal solution.
+
+### How AutoML facilitates model and feature selection
+
+AutoML streamlines the model development process through several key mechanisms:
+
+**Automated algorithm testing** — AutoML automatically tests multiple algorithms from popular frameworks including scikit-learn, XGBoost, LightGBM, Prophet, and ARIMA. It orchestrates distributed training across these algorithms simultaneously, saving you from having to manually experiment with each one.
+
+**Feature importance analysis** — Generated notebooks include Shapley value calculations that help you understand which features have the greatest impact on predictions. This insight guides feature selection and engineering efforts.
+
+**Data exploration** — AutoML automatically generates a data exploration notebook that provides summary statistics and insights into your dataset, helping you understand the characteristics and quality of your data before training begins.
+
+**Intelligent preprocessing** — AutoML handles data cleaning and preparation automatically. In Databricks Runtime 10.3 ML and above, you can specify which columns to use for training. Starting with Runtime 10.4 LTS ML, you can configure how null values are imputed.
+
+## Advantages of AutoML
+
+> Identify the advantages AutoML brings to the model development process
+
+AutoML brings significant benefits to the machine learning workflow:
+
+### Accelerated development
+
+AutoML dramatically reduces the time required to develop a working model. What might take days or weeks of manual experimentation can be accomplished in hours through automated testing of multiple algorithms and hyperparameter combinations.
+
+### Transparency and reproducibility
+
+Unlike black-box AutoML solutions, Databricks AutoML generates editable source code notebooks for each trial. This means you can:
+- Review the exact steps and decisions made during training
+- Reproduce results exactly
+- Modify and customize the approach for specific requirements
+- Learn best practices by examining the generated code
+
+### Accessibility
+
+AutoML makes machine learning accessible to practitioners with varying levels of expertise:
+- **Low-code interface** — The UI allows users to configure experiments without writing code
+- **Python API** — Advanced users can integrate AutoML into existing workflows programmatically
+- **Educational value** — Generated notebooks serve as learning resources for understanding ML workflows
+
+### Support for multiple problem types
+
+AutoML supports the three most common machine learning tasks:
+
+**Classification** — Predicts categorical labels or classes. Useful for scenarios like customer churn prediction, fraud detection, or sentiment analysis.
+
+**Regression** — Predicts continuous numeric values. Common applications include price prediction, demand forecasting, or risk assessment.
+
+**Forecasting** — Predicts future values in time-series data. Note that to use Auto-ARIMA, the time series must have a regular frequency where the interval between any two points is the same throughout the series.
+
+### Advanced features
+
+**Time-based data splitting** — You can designate a time column to organize training, validation, and testing data chronologically, which is crucial for time-sensitive applications.
+
+**Framework selection** — In newer runtime versions, you can exclude specific training frameworks from consideration if you have preferences or constraints.
+
+**Model deployment** — Upon completion, AutoML displays the best-performing model based on your chosen evaluation metric and allows you to register it directly to Unity Catalog or the Model Registry for deployment to serving endpoints.
+
+## Requirements
+
+AutoML requires the `databricks-automl-runtime` package and operates on Databricks Runtime for Machine Learning clusters with Dedicated or Standard compute access modes.
 

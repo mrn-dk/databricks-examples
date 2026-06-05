@@ -2,9 +2,177 @@
 title: "MLOps"
 ---
 
-## Further Reading
+import { Badge } from '@astrojs/starlight/components';
+
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [MLOps workflows on Databricks](https://docs.databricks.com/aws/en/machine-learning/mlops/mlops-workflow)
+- [The Big Book of MLOps](https://www.databricks.com/resources/ebook/the-big-book-of-mlops)
 - [Model deployment patterns](https://docs.databricks.com/aws/en/machine-learning/mlops/deployment-patterns)
 - [LLMOps workflows](https://docs.databricks.com/aws/en/machine-learning/mlops/llmops)
+
+## Explaining MLOps
+
+> Identify the best practices of an MLOps strategy
+
+MLOps is a set of processes and automated steps that help you manage code, data, and models in order to improve the performance, stability, and long-term efficiency of your ML systems.
+
+Databricks defines the three areas of _ops_ as:
+- DevOps (git-based)
+- DataOps (Delta Lake)
+- ModelOps (mlflow)
+
+### Separate environments for development, staging, and production
+
+In general, assets (code, data and models) are developed in stages. Typically these stages progress from early development stages that do not have tight access limitations, through an intermediate testing stage, to a final production stage that is tightly controlled. These stages are typically referred to as <Badge text="dev" variant="success" />, <Badge text="test" variant="caution" /> and <Badge text="prod" variant="danger" />.
+
+**Development environments**
+
+These are typically accessible by the developer, who also has a high degree of autonomy and broad access rights. Resources are sometimes ephemeral (i.e. destroyed on a nightly schedule or similar). Ideally, the developer has **read-only** access to production data or a representative sample of it.
+
+**Testing or staging environments**
+
+In practice, the testing — or staging — environment is typically _less_ accessible than the development environment, with access deliberately restricted. Deployments happen exclusively through automated deployment pipelines as part of the CI/CD workflow.
+
+**Production environments**
+
+This environment is not directly accessible by developers; access is strictly controlled. This is intentional — it prevents accidental changes such as inadvertently deleting production data. All code and artifacts at this stage have undergone rigorous testing and validation in the preceding environments.
+
+For further details, Databricks provides a comprehensive overview of the responsibilities and actions in each environment:
+- [Development stage](https://docs.databricks.com/aws/en/machine-learning/mlops/mlops-workflow#development-stage)
+- [Staging stage](https://docs.databricks.com/aws/en/machine-learning/mlops/mlops-workflow#staging-stage)
+- [Production stage](https://docs.databricks.com/aws/en/machine-learning/mlops/mlops-workflow#production-stage)
+
+### Access control and versioning
+
+Access control is a critical aspect of both MLOps and DevOps. It ensures that artifacts and code are accessible only to the right people, and it safeguards production assets from being inadvertently affected by ongoing development work. In an enterprise context, controlling when features are rolled out is essential to ensuring they align with business and user requirements.
+
+Versioning is another essential aspect of modern software operations — it provides the means to track changes and, in most cases, the ability to roll back to a previous state in the event of failures or emergencies. [Git]() is the de-facto standard for versioning source code.
+
+A key corollary to versioning is the ["everything-as-code"](https://dev.to/gatling/everything-as-code-explained-511m) mindset, which stipulates that all artifacts should be treated as code and therefore versioned. Using [Declarative Automation Bundles]() and [Terraform]() together, you can store your entire machine learning system as source code. This promotes long-term stability by making it possible to recreate assets efficiently and reliably. It also aligns with Databricks' guiding principle to **deploy code, not models**.
+
+## Recommended MLOps workflow
+
+The recommended Databricks MLOps workflow progresses through three stages: development, staging, and production. Each stage runs in its own isolated environment with its own Unity Catalog catalog (e.g. `dev`, `staging`, `prod`).
+
+### Development stage
+
+The development stage focuses on experimentation. Data scientists work interactively in notebooks with broad write access to the dev catalog, and ideally read-only access to the production catalog for comparing against current production models.
+
+The key steps in this stage are:
+
+1. **Exploratory data analysis (EDA)** — Data scientists explore data to assess whether it can solve the business problem and identify relevant features. [AutoML](https://docs.databricks.com/aws/en/machine-learning/automl/) can accelerate this step by automatically generating baseline models and summary statistics.
+2. **Code** — All pipelines (feature engineering, training, inference, monitoring) are developed in a dev branch of the project Git repository.
+3. **Model training** — The training pipeline logs parameters, metrics, and artifacts to the MLflow Tracking server. After tuning, the final model artifact is logged and registered to the dev catalog in Unity Catalog.
+4. **Model validation** — A validation pipeline loads the model from Unity Catalog and runs checks (format, metadata, performance on data slices, compliance). If the model passes, it is assigned the `Challenger` alias in Unity Catalog.
+5. **Model deployment (dev)** — The deployment pipeline compares the `Challenger` model against the existing `Champion` and, if it performs better, promotes it. It also sets up any required inference infrastructure (e.g. a Model Serving endpoint).
+6. **Commit code** — Completed pipeline code is committed to the dev branch.
+
+### Staging stage
+
+The staging stage focuses on testing ML pipeline code to ensure it is ready for production. All pipelines — feature engineering, training, inference, and monitoring — are tested together.
+
+1. **Pull request** — A data scientist or ML engineer opens a pull request against the main branch.
+2. **Unit tests (CI)** — The CI pipeline automatically builds the code and runs unit tests. A failing test rejects the pull request.
+3. **Integration tests (CI)** — All pipelines are run end-to-end against the staging catalog to verify they work correctly together. For real-time inference use cases, a Model Serving endpoint is created and tested. To reduce cost, tests may run on a subset of data or with fewer training iterations.
+4. **Merge to main** — If all tests pass, code is merged into the main branch.
+5. **Release branch** — An ML engineer creates a release branch, which triggers the CI/CD system to deploy updated jobs to the production environment.
+
+### Production stage
+
+The production stage is owned by ML engineers. Data scientists have read-only visibility into logs, model artifacts, and monitoring tables, but no write or compute access.
+
+1. **Model training** — The training pipeline is triggered by a code deployment or a scheduled retraining job. It uses production data from the prod catalog and logs results to the production MLflow Tracking server.
+2. **Model validation** — The validation pipeline runs checks against the newly trained model. If it passes, the model is assigned the `Challenger` alias in Unity Catalog.
+3. **Champion vs. Challenger comparison** — Before deploying, the new `Challenger` model is compared to the existing `Champion`. This comparison can be:
+   - **Offline**: both models are evaluated against a held-out dataset.
+   - **Online**: for real-time serving, an A/B test or gradual rollout is used.
+   If the Challenger outperforms the Champion, it is promoted by updating the `Champion` alias.
+4. **Inference** — Batch or streaming inference pipelines load the `Champion` model by alias. For low-latency use cases, Model Serving exposes the model as a REST endpoint. Because pipelines reference models by alias, deploying a new Champion version is transparent to inference pipelines.
+5. **Data profiling and monitoring** — A monitoring pipeline tracks data drift, model performance, and infrastructure metrics. Results are published to tables in the prod catalog and can be visualized with Databricks SQL dashboards. Alerts can be configured to notify data scientists when thresholds are exceeded.
+6. **Retraining** — Retraining can be triggered in two ways:
+   - **Scheduled**: a periodic job retrains on the latest data.
+   - **Triggered**: a SQL alert detects degraded performance or data drift and automatically triggers the training workflow via a webhook.
+
+## Model deployment patterns
+
+When promoting ML artifacts across environments, there are two approaches to choose from.
+
+### Deploy code (recommended)
+
+The same training code is promoted from development → staging → production. The model is retrained in each environment: first in development during experimentation, then in staging on a limited dataset as part of integration tests, and finally in production on the full dataset.
+
+**Advantages:**
+- Models are always trained on production data in the production environment, even when production data cannot be accessed from development.
+- Automated retraining is safe: the training code has been reviewed, tested, and approved before running in production.
+- Feature engineering, inference, and monitoring code follows the same promotion path as model training code.
+
+**Disadvantages:**
+- Requires data scientists to structure their code in a way that can be handed off and run by automated pipelines, which can have a learning curve.
+
+### Deploy models
+
+The model artifact is trained in the development environment, tested in staging, and then promoted to production without retraining.
+
+**Advantages:**
+- Simpler handoff for data scientists.
+- Avoids retraining costs when model training is very expensive.
+
+**Disadvantages:**
+- Not viable if production data cannot be accessed from the development environment.
+- Automated retraining is difficult to govern, since the team deploying to production may not accept a model trained in development as production-ready.
+- Supporting code (feature engineering, inference, monitoring pipelines) must be deployed to production separately.
+
+Consider using "deploy models" only when training is very expensive or hard to reproduce, or when working in a single workspace without an external CI/CD process.
+
+## LLMOps
+
+LLMOps adapts the standard MLOps workflow for large language model (LLM) applications. The core principles — separate environments, Git for version control, MLflow for model management, Delta Lake for data — remain the same. However, the nature of LLMs introduces several important differences.
+
+### How LLMs differ from traditional ML models
+
+<table>
+  <thead>
+    <tr>
+      <th>Property</th>
+      <th>Implication for MLOps</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>LLMs are available in many forms (proprietary APIs, open-source models, fine-tuned models, custom pre-trained models)</td>
+      <td>Projects often start from an existing third-party or open-source model and incrementally customize it.</td>
+    </tr>
+    <tr>
+      <td>LLMs take natural language instructions as input, which can be shaped via prompt engineering</td>
+      <td>Designing prompt templates is a core part of development. The artifact being promoted may be a pipeline (with prompts, agents, or chains) rather than a model.</td>
+    </tr>
+    <tr>
+      <td>LLMs can be augmented with external context via retrieval-augmented generation (RAG)</td>
+      <td>Serving infrastructure may include a vector index for fast similarity search.</td>
+    </tr>
+    <tr>
+      <td>LLMs are large (GBs to hundreds of GBs)</td>
+      <td>Real-time serving may require GPUs. Cost/performance tradeoffs are more significant, and model compression techniques may be needed.</td>
+    </tr>
+    <tr>
+      <td>LLMs are hard to evaluate with traditional metrics (there is rarely a single "right" answer)</td>
+      <td>Human feedback is essential for evaluation, monitoring, and fine-tuning.</td>
+    </tr>
+    <tr>
+      <td>Third-party APIs may supply the underlying model</td>
+      <td>Centralized API governance is needed to manage credentials and to allow switching between providers.</td>
+    </tr>
+  </tbody>
+</table>
+
+### LLMOps-specific changes to the production architecture
+
+- **Model hub** — Instead of training from scratch, LLM applications typically select a pretrained model from an internal or external hub. Databricks includes foundation models in Unity Catalog and Databricks Marketplace.
+- **Vector index** — RAG applications use vector indexes to retrieve relevant context for LLM queries. Databricks AI Search can index any Delta table in Unity Catalog and automatically syncs as the table changes.
+- **Fine-tuning** — When a general-purpose model performs insufficiently for a specific domain, it can be fine-tuned using Databricks Foundation Model Fine-tuning. Validation of a fine-tuned model often involves manual review before deployment.
+- **Model serving** — LLM pipelines may make calls to external LLM APIs from within Model Serving endpoints, adding complexity around latency and credential management. Databricks Model Serving provides a unified interface for deploying and governing both self-hosted and external models.
+- **Human feedback** — Human feedback loops must be treated as first-class data. The MLflow review app supports collecting structured feedback from reviewers, which feeds into monitoring and future fine-tuning.
 

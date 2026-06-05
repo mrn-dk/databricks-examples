@@ -2,8 +2,255 @@
 title: "Training Pipelines"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Use Apache Spark MLlib on Databricks](https://docs.databricks.com/aws/en/machine-learning/train-model/mllib)
 - [Apache Spark ML Pipelines guide](https://spark.apache.org/docs/latest/ml-pipeline.html)
 - [Machine learning training examples](https://docs.databricks.com/aws/en/machine-learning/train-model/training-examples)
+
+## What is a Training Pipeline?
+
+> Develop a training pipeline
+
+A training pipeline is a sequence of stages that process data and train a machine learning model. Spark MLlib provides the Pipeline API to chain together multiple transformers and estimators into a single workflow, ensuring consistent data processing across training and inference.
+
+## Benefits of Using Pipelines
+
+**Reproducibility** — Pipelines ensure that the same transformations are applied in the same order every time, making your ML workflow reproducible.
+
+**Simplified deployment** — A fitted pipeline encapsulates all preprocessing steps and the model in a single object, making deployment straightforward.
+
+**Easier experimentation** — Swap out different algorithms or preprocessing steps without rewriting code.
+
+**Prevention of data leakage** — Pipelines ensure that transformers are fitted only on training data, then applied to test data, preventing information from the test set from influencing training.
+
+## Developing a Training Pipeline
+
+A typical training pipeline includes these stages:
+
+1. **Data preprocessing** — Handle missing values, outliers, data types
+2. **Feature engineering** — Create new features, encode categoricals, scale numerics
+3. **Feature assembly** — Combine features into a single vector
+4. **Model training** — Train the ML algorithm
+
+### Basic pipeline example
+
+```python
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler, StandardScaler
+from pyspark.ml.classification import LogisticRegression
+
+# Stage 1: Index categorical column
+indexer = StringIndexer(
+    inputCol="category",
+    outputCol="category_index",
+    handleInvalid="keep"
+)
+
+# Stage 2: One-hot encode
+encoder = OneHotEncoder(
+    inputCols=["category_index"],
+    outputCols=["category_encoded"]
+)
+
+# Stage 3: Assemble features into a single vector
+assembler = VectorAssembler(
+    inputCols=["category_encoded", "numeric_feature1", "numeric_feature2"],
+    outputCol="features"
+)
+
+# Stage 4: Scale features
+scaler = StandardScaler(
+    inputCol="features",
+    outputCol="scaled_features",
+    withStd=True,
+    withMean=False
+)
+
+# Stage 5: Train model
+lr = LogisticRegression(
+    featuresCol="scaled_features",
+    labelCol="label"
+)
+
+# Create pipeline
+pipeline = Pipeline(stages=[indexer, encoder, assembler, scaler, lr])
+
+# Fit pipeline on training data
+pipeline_model = pipeline.fit(train_df)
+
+# Make predictions
+predictions = pipeline_model.transform(test_df)
+```
+
+### Advanced pipeline with multiple categorical features
+
+```python
+from pyspark.ml import Pipeline
+from pyspark.ml.feature import StringIndexer, OneHotEncoder, VectorAssembler, Imputer
+from pyspark.ml.classification import RandomForestClassifier
+
+# Define categorical columns
+categorical_cols = ["category1", "category2", "category3"]
+numeric_cols = ["age", "income", "score"]
+
+# Stage 1: Impute missing values in numeric columns
+imputer = Imputer(
+    inputCols=numeric_cols,
+    outputCols=[f"{c}_imputed" for c in numeric_cols],
+    strategy="median"
+)
+
+# Stage 2: Index categorical columns
+indexers = [
+    StringIndexer(
+        inputCol=col,
+        outputCol=f"{col}_index",
+        handleInvalid="keep"
+    )
+    for col in categorical_cols
+]
+
+# Stage 3: One-hot encode indexed columns
+encoder = OneHotEncoder(
+    inputCols=[f"{col}_index" for col in categorical_cols],
+    outputCols=[f"{col}_encoded" for col in categorical_cols]
+)
+
+# Stage 4: Assemble all features
+feature_cols = [f"{c}_imputed" for c in numeric_cols] + \
+               [f"{c}_encoded" for c in categorical_cols]
+
+assembler = VectorAssembler(
+    inputCols=feature_cols,
+    outputCol="features"
+)
+
+# Stage 5: Train random forest
+rf = RandomForestClassifier(
+    featuresCol="features",
+    labelCol="label",
+    numTrees=100,
+    maxDepth=10
+)
+
+# Create and fit pipeline
+pipeline = Pipeline(stages=[imputer] + indexers + [encoder, assembler, rf])
+pipeline_model = pipeline.fit(train_df)
+```
+
+## Saving and Loading Pipelines
+
+Pipelines can be saved and loaded for later use:
+
+```python
+# Save the fitted pipeline
+pipeline_model.write().overwrite().save("/path/to/pipeline_model")
+
+# Load the pipeline
+from pyspark.ml import PipelineModel
+loaded_model = PipelineModel.load("/path/to/pipeline_model")
+
+# Use loaded pipeline
+predictions = loaded_model.transform(new_data)
+```
+
+## Best Practices
+
+### Handle missing values early
+
+Place imputation stages at the beginning of your pipeline to avoid errors in later stages:
+
+```python
+# Bad: Missing values might cause VectorAssembler to fail
+stages = [assembler, scaler, model]
+
+# Good: Handle missing values first
+stages = [imputer, assembler, scaler, model]
+```
+
+### Use handleInvalid parameter
+
+For `StringIndexer`, use `handleInvalid="keep"` to handle unseen categories in production:
+
+```python
+indexer = StringIndexer(
+    inputCol="category",
+    outputCol="category_index",
+    handleInvalid="keep"  # Creates a special index for unknown values
+)
+```
+
+### Fit on training data only
+
+Always fit the pipeline on training data, then transform both train and test data:
+
+```python
+# Correct approach
+pipeline_model = pipeline.fit(train_df)
+train_predictions = pipeline_model.transform(train_df)
+test_predictions = pipeline_model.transform(test_df)
+
+# Incorrect: Fitting on test data causes data leakage
+# pipeline_model = pipeline.fit(test_df)  # NEVER do this!
+```
+
+### Modularize complex pipelines
+
+For complex workflows, break pipelines into logical sub-components:
+
+```python
+# Create sub-pipelines
+preprocessing_stages = [imputer, indexers, encoder]
+feature_stages = [assembler, scaler]
+model_stages = [classifier]
+
+# Combine into final pipeline
+all_stages = preprocessing_stages + feature_stages + model_stages
+pipeline = Pipeline(stages=all_stages)
+```
+
+## Pipeline Inspection
+
+Inspect individual stages after fitting:
+
+```python
+# Get stages from fitted pipeline
+stages = pipeline_model.stages
+
+# Access specific stage (e.g., the trained model)
+trained_model = stages[-1]
+
+# For tree-based models, view feature importance
+if hasattr(trained_model, "featureImportances"):
+    print(f"Feature importances: {trained_model.featureImportances}")
+```
+
+## Integration with MLflow
+
+Log pipelines to MLflow for experiment tracking:
+
+```python
+import mlflow
+import mlflow.spark
+
+with mlflow.start_run():
+    # Fit pipeline
+    pipeline_model = pipeline.fit(train_df)
+
+    # Make predictions
+    predictions = pipeline_model.transform(test_df)
+
+    # Evaluate
+    from pyspark.ml.evaluation import BinaryClassificationEvaluator
+    evaluator = BinaryClassificationEvaluator()
+    auc = evaluator.evaluate(predictions)
+
+    # Log metrics
+    mlflow.log_metric("auc", auc)
+
+    # Log pipeline model
+    mlflow.spark.log_model(pipeline_model, "model")
+```

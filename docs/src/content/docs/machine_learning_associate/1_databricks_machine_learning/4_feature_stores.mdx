@@ -2,7 +2,9 @@
 title: "Feature Stores"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Databricks Feature Store](https://docs.databricks.com/aws/en/machine-learning/feature-store/index)
 - [Feature Store overview and glossary](https://docs.databricks.com/aws/en/machine-learning/feature-store/concepts)
@@ -10,4 +12,146 @@ title: "Feature Stores"
 - [Feature governance and lineage](https://docs.databricks.com/aws/en/machine-learning/feature-store/feature-governance-lineage)
 - [Databricks Online Feature Stores](https://docs.databricks.com/aws/en/machine-learning/feature-store/online-feature-stores)
 - [Workspace Feature Store (deprecated)](https://docs.databricks.com/aws/en/machine-learning/feature-store/workspace-feature-store/)
+
+## What is Feature Store?
+
+Databricks Feature Store is a centralized repository that enables data scientists to find, share, and manage features used in AI and ML models. It serves as the single source of truth for feature definitions, ensuring consistent feature computation across model training and inference phases.
+
+### Core concepts
+
+**Feature tables** — Organized repositories with primary keys, backed by Delta tables and metadata that track data lineage and computational origins. In Unity Catalog-enabled workspaces, any Delta table with a primary key constraint qualifies as a feature table.
+
+**FeatureLookup** — A specification that identifies which features to extract from particular tables and defines join keys for combining feature data with training labels.
+
+**FeatureFunction** — Enables real-time feature computation by combining real-time inputs with feature values to compute up-to-date feature values at inference time.
+
+**FeatureSpec** — A Unity Catalog entity that bundles FeatureLookups and FeatureFunctions into reusable units for both model training and serving endpoints.
+
+**Training sets** — Combine feature specifications, raw training data, labels, and lookup keys to enable model development with Feature Store integration.
+
+## Benefits of Unity Catalog vs Workspace Feature Store
+
+> Identify the benefits of creating feature store tables at the account level in Unity Catalog vs at the workspace level
+
+Unity Catalog provides significant advantages over the deprecated Workspace Feature Store:
+
+### Cross-workspace sharing and discovery
+
+Unity Catalog feature tables are available across all workspaces within your account, enabling teams to discover and reuse features created by other teams. Workspace-level feature stores are isolated to a single workspace, limiting collaboration and feature reuse.
+
+### Built-in governance
+
+Unity Catalog provides comprehensive governance capabilities:
+- **Access control** — Fine-grained permissions control who can read, write, or modify feature tables
+- **Lineage tracking** — Automatic tracking of which models use which features, making it easy to understand downstream impact when features change
+- **Audit logs** — Complete visibility into who accessed or modified feature tables
+
+### Centralized management
+
+Features are managed at the account level, providing:
+- **Single source of truth** — One definitive location for all features across your organization
+- **Simplified administration** — Centralized policies and permissions rather than per-workspace configuration
+- **Better discoverability** — Catalog Explorer and Features UI make it easy to search and browse available features
+
+### Future-proof architecture
+
+Unity Catalog is the recommended approach for all new feature store implementations. The Workspace Feature Store is deprecated and receives no new features or enhancements.
+
+## Working with Feature Tables
+
+> Create a feature store table in Unity Catalog
+
+In Unity Catalog-enabled workspaces, any Delta table with a primary key constraint is automatically recognized as a feature table. To create a feature table:
+
+1. Create a Delta table with your feature data
+2. Define a primary key constraint on the table
+3. The table is now available as a feature table in the Feature Store
+
+### Writing data to feature tables
+
+> Write data to a feature store table
+
+Feature tables are Delta tables, so you can write data using standard Delta Lake operations:
+
+```python
+# Write features to a Delta table
+features_df.write.mode("merge").saveAsTable("catalog.schema.feature_table")
+```
+
+You can also define time-windowed aggregation features using declarative APIs and materialize features for offline or online use.
+
+### Supported data types
+
+Feature Store accommodates various PySpark types including:
+- Basic types: `IntegerType`, `FloatType`, `BooleanType`, `StringType`
+- Complex types: `ArrayType` (for vectors and embeddings), `MapType` (sparse vectors), `StructType` (text and complex structures)
+
+## Training and Scoring with Feature Tables
+
+> Train a model with features from a feature store table
+
+Training with feature tables leverages the `FeatureLookup` specification to automatically join features with your training data:
+
+```python
+from databricks.feature_store import FeatureLookup
+
+# Define which features to use
+feature_lookups = [
+    FeatureLookup(
+        table_name="catalog.schema.customer_features",
+        lookup_key="customer_id"
+    )
+]
+
+# Create training set
+training_set = fs.create_training_set(
+    df=labels_df,
+    feature_lookups=feature_lookups,
+    label="target_column"
+)
+```
+
+Models automatically record which features were used during training, creating an audit trail for governance and reproducibility.
+
+### Point-in-time feature joins
+
+For time-series data, point-in-time lookups ensure models train on feature values available before target observation timestamps. This prevents data leakage that could artificially inflate model performance during training but degrade performance in production.
+
+> Score a model using features from a feature store table
+
+When scoring models trained with feature tables, the Feature Store automatically retrieves the necessary features using the same lookup specifications defined during training. This ensures:
+- **Consistency** — The feature computations used at inference are identical to those used during training
+- **Simplicity** — No need to manually reconstruct feature pipelines for inference
+- **Elimination of training/serving skew** — Features are computed the same way in both environments
+
+## Online vs Offline Feature Stores
+
+> Describe the differences between online and offline feature tables
+
+Feature Store supports two types of feature storage, each optimized for different use cases:
+
+### Offline Store
+
+The offline store is a Delta table-based repository optimized for:
+- **Feature discovery** — Browsing and exploring available features
+- **Model training** — Batch access to historical feature values
+- **Batch predictions** — Computing predictions for large datasets in batch jobs
+
+Offline stores provide full historical data and support complex queries, but have higher latency (seconds to minutes).
+
+### Online Store
+
+The online store is a high-performance, scalable solution for serving feature data to online applications, powered by Databricks Lakebase. It is optimized for:
+- **Real-time inference** — Low-latency feature retrieval (milliseconds)
+- **Model serving endpoints** — Integration with Databricks Model Serving
+- **External applications** — Feature serving endpoints for applications outside Databricks
+
+Online stores sacrifice some query flexibility for dramatically lower latency, making them suitable for production serving scenarios where response time is critical.
+
+### When to use each
+
+- Use **offline stores** for training, batch inference, and exploratory analysis
+- Use **online stores** for real-time model serving where low latency is required
+
+Many production systems use both: offline stores for training and batch jobs, with features materialized to online stores for real-time serving.
 

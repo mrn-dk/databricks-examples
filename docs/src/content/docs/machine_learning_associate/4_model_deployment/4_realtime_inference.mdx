@@ -2,9 +2,397 @@
 title: "Realtime Inference"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Deploy models using Model Serving](https://docs.databricks.com/aws/en/machine-learning/model-serving/index)
 - [Tutorial: Deploy and query a custom model](https://docs.databricks.com/aws/en/machine-learning/model-serving/model-serving-intro)
 - [Query serving endpoints for custom models](https://docs.databricks.com/aws/en/machine-learning/model-serving/score-custom-model-endpoints)
 - [Create and manage serving endpoints](https://docs.databricks.com/aws/en/machine-learning/model-serving/create-manage-serving-endpoints)
+
+## Deploying Models for Realtime Inference
+
+> Deploy and query a model for realtime inference
+
+Realtime inference exposes ML models as REST API endpoints that respond to individual prediction requests with low latency (milliseconds).
+
+### Step 1: Register model to Unity Catalog
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Train model
+    model.fit(X_train, y_train)
+
+    # Log model with signature
+    from mlflow.models.signature import infer_signature
+    signature = infer_signature(X_train, model.predict(X_train))
+
+    mlflow.sklearn.log_model(
+        model,
+        "model",
+        signature=signature,
+        registered_model_name="main.ml_models.fraud_detection"
+    )
+```
+
+### Step 2: Create serving endpoint
+
+**Using the UI:**
+
+1. Navigate to **Serving** in the left sidebar
+2. Click **Create serving endpoint**
+3. Configure:
+   - **Endpoint name:** `fraud-detection-api`
+   - **Served entities:** Select your model from Unity Catalog
+   - **Model version:** Choose version or alias (e.g., `@Champion`)
+   - **Compute workload size:** Small/Medium/Large based on traffic
+   - **Scale to zero:** Enable to reduce costs during idle periods
+4. Click **Create**
+
+**Using the Databricks SDK:**
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
+# Create endpoint
+endpoint = w.serving_endpoints.create(
+    name="fraud-detection-api",
+    config={
+        "served_entities": [{
+            "entity_name": "main.ml_models.fraud_detection",
+            "entity_version": "1",
+            "workload_size": "Small",
+            "scale_to_zero_enabled": True
+        }]
+    }
+)
+
+print(f"Endpoint created: {endpoint.name}")
+print(f"Status: {endpoint.state.config_update}")
+```
+
+### Step 3: Query the endpoint
+
+**Using Python requests:**
+
+```python
+import requests
+import os
+import json
+
+# Configuration
+workspace_url = "https://<workspace-url>"
+endpoint_name = "fraud-detection-api"
+token = os.environ.get("DATABRICKS_TOKEN")
+
+# Endpoint URL
+url = f"{workspace_url}/serving-endpoints/{endpoint_name}/invocations"
+
+# Headers
+headers = {
+    "Authorization": f"Bearer {token}",
+    "Content-Type": "application/json"
+}
+
+# Prepare data
+data = {
+    "dataframe_records": [
+        {
+            "amount": 150.50,
+            "merchant_id": 12345,
+            "timestamp": "2025-06-05T10:30:00",
+            "location": "New York"
+        }
+    ]
+}
+
+# Make request
+response = requests.post(url, headers=headers, json=data)
+
+# Parse response
+if response.status_code == 200:
+    predictions = response.json()
+    print(f"Predictions: {predictions}")
+else:
+    print(f"Error: {response.status_code} - {response.text}")
+```
+
+**Using the Databricks SDK:**
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
+# Query endpoint
+response = w.serving_endpoints.query(
+    name="fraud-detection-api",
+    dataframe_records=[
+        {
+            "amount": 150.50,
+            "merchant_id": 12345,
+            "timestamp": "2025-06-05T10:30:00",
+            "location": "New York"
+        }
+    ]
+)
+
+print(f"Predictions: {response.predictions}")
+```
+
+## Splitting Traffic Between Endpoints
+
+> Split data between endpoints for realtime inference
+
+Traffic splitting allows you to route requests between multiple model versions for A/B testing, canary deployments, or gradual rollouts.
+
+### Use case: A/B testing
+
+Test a new model version on a small percentage of traffic before full deployment:
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
+# Update endpoint to split traffic
+w.serving_endpoints.update_config(
+    name="fraud-detection-api",
+    served_entities=[
+        {
+            # Current production model (90% traffic)
+            "entity_name": "main.ml_models.fraud_detection",
+            "entity_version": "3",
+            "workload_size": "Small",
+            "scale_to_zero_enabled": False,
+            "traffic_percentage": 90
+        },
+        {
+            # New challenger model (10% traffic)
+            "entity_name": "main.ml_models.fraud_detection",
+            "entity_version": "4",
+            "workload_size": "Small",
+            "scale_to_zero_enabled": False,
+            "traffic_percentage": 10
+        }
+    ]
+)
+```
+
+### Use case: Canary deployment
+
+Gradually increase traffic to the new model:
+
+```python
+# Phase 1: Start with 5% traffic to new model
+update_traffic_split(champion_pct=95, challenger_pct=5)
+
+# Monitor performance metrics for 24 hours
+# If metrics look good, proceed to phase 2
+
+# Phase 2: Increase to 25%
+update_traffic_split(champion_pct=75, challenger_pct=25)
+
+# Continue monitoring
+
+# Phase 3: Increase to 50%
+update_traffic_split(champion_pct=50, challenger_pct=50)
+
+# Phase 4: Full rollout
+update_traffic_split(champion_pct=0, challenger_pct=100)
+
+def update_traffic_split(champion_pct, challenger_pct):
+    w.serving_endpoints.update_config(
+        name="fraud-detection-api",
+        served_entities=[
+            {
+                "entity_name": "main.ml_models.fraud_detection",
+                "entity_version": "3",
+                "traffic_percentage": champion_pct
+            },
+            {
+                "entity_name": "main.ml_models.fraud_detection",
+                "entity_version": "4",
+                "traffic_percentage": challenger_pct
+            }
+        ]
+    )
+```
+
+### Use case: Model variants
+
+Serve different models for different use cases:
+
+```python
+# Serve lightweight and heavyweight models
+w.serving_endpoints.update_config(
+    name="recommendation-api",
+    served_entities=[
+        {
+            # Fast model for real-time recommendations
+            "entity_name": "main.ml_models.recommendations_fast",
+            "entity_version": "1",
+            "workload_size": "Small",
+            "traffic_percentage": 80
+        },
+        {
+            # Accurate model for premium users
+            "entity_name": "main.ml_models.recommendations_accurate",
+            "entity_version": "1",
+            "workload_size": "Medium",
+            "traffic_percentage": 20
+        }
+    ]
+)
+```
+
+## Advanced Querying Patterns
+
+### Batch predictions via REST API
+
+Send multiple records in one request:
+
+```python
+data = {
+    "dataframe_records": [
+        {"amount": 50.00, "merchant_id": 123, "location": "NY"},
+        {"amount": 150.50, "merchant_id": 456, "location": "CA"},
+        {"amount": 300.75, "merchant_id": 789, "location": "TX"}
+    ]
+}
+
+response = requests.post(url, headers=headers, json=data)
+predictions = response.json()["predictions"]
+```
+
+### Using different input formats
+
+**Dataframe records (recommended):**
+```python
+data = {
+    "dataframe_records": [{"feature1": 1.0, "feature2": 2.0}]
+}
+```
+
+**Dataframe split:**
+```python
+data = {
+    "dataframe_split": {
+        "columns": ["feature1", "feature2"],
+        "data": [[1.0, 2.0], [3.0, 4.0]]
+    }
+}
+```
+
+**Instances (legacy):**
+```python
+data = {
+    "instances": [[1.0, 2.0], [3.0, 4.0]]
+}
+```
+
+## Endpoint Management
+
+### Monitor endpoint health
+
+```python
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
+# Get endpoint status
+endpoint = w.serving_endpoints.get(name="fraud-detection-api")
+
+print(f"State: {endpoint.state.ready}")
+print(f"Config update: {endpoint.state.config_update}")
+
+# Get endpoint metrics
+logs = w.serving_endpoints.logs(
+    name="fraud-detection-api",
+    served_model_name="fraud_detection-1"
+)
+```
+
+### Update model version without downtime
+
+```python
+# Update to new model version
+w.serving_endpoints.update_config(
+    name="fraud-detection-api",
+    served_entities=[{
+        "entity_name": "main.ml_models.fraud_detection",
+        "entity_version": "5",  # New version
+        "workload_size": "Small",
+        "scale_to_zero_enabled": True
+    }]
+)
+```
+
+### Delete endpoint
+
+```python
+# Delete when no longer needed
+w.serving_endpoints.delete(name="fraud-detection-api")
+```
+
+## Performance Optimization
+
+### Choose appropriate compute size
+
+- **Small** — Up to 500 requests/minute, suitable for development and low-traffic applications
+- **Medium** — Up to 5,000 requests/minute, suitable for moderate production traffic
+- **Large** — Up to 50,000 requests/minute, suitable for high-traffic applications
+
+### Enable scale-to-zero for cost savings
+
+```python
+# Enable for development/staging environments
+"scale_to_zero_enabled": True
+
+# Disable for production to avoid cold-start latency
+"scale_to_zero_enabled": False
+```
+
+### Use model aliases for seamless updates
+
+```python
+# Deploy using alias instead of version number
+{
+    "entity_name": "main.ml_models.fraud_detection@Champion",
+    "workload_size": "Small"
+}
+
+# Update the Champion alias to deploy new version
+# No endpoint configuration change needed
+```
+
+## Error Handling
+
+```python
+import requests
+
+def predict_with_retry(data, max_retries=3):
+    for attempt in range(max_retries):
+        try:
+            response = requests.post(url, headers=headers, json=data, timeout=5)
+            response.raise_for_status()
+            return response.json()
+        except requests.exceptions.Timeout:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(2 ** attempt)  # Exponential backoff
+        except requests.exceptions.HTTPError as e:
+            if e.response.status_code >= 500:
+                # Retry on server errors
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
+                    continue
+            raise
+
+    return None
+```

@@ -2,8 +2,260 @@
 title: "Batch Inference"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Deploy models for batch inference and prediction](https://docs.databricks.com/aws/en/machine-learning/model-inference/index)
 - [Query serving endpoints for custom models](https://docs.databricks.com/aws/en/machine-learning/model-serving/score-custom-model-endpoints)
 - [Enrich data using AI Functions](https://docs.databricks.com/aws/en/large-language-models/ai-functions)
+
+## What is Batch Inference?
+
+Batch inference involves applying a trained model to large datasets to generate predictions for many records at once, typically on a scheduled basis (hourly, daily, weekly). The predictions are stored in tables for downstream use.
+
+## Performing Batch Inference with Pandas
+
+> Use pandas to perform batch inference
+
+Pandas UDFs (User-Defined Functions) allow you to apply pandas-based models to Spark DataFrames, combining the familiarity of pandas with Spark's distributed processing capabilities.
+
+### Loading the model
+
+```python
+import mlflow
+
+# Load model from Unity Catalog
+model = mlflow.pyfunc.load_model("models:/main.ml_models.customer_churn@Champion")
+```
+
+### Using pandas_udf for batch predictions
+
+```python
+from pyspark.sql.functions import pandas_udf
+import pandas as pd
+
+# Define pandas UDF
+@pandas_udf("double")
+def predict_udf(features: pd.Series) -> pd.Series:
+    # Load model within UDF (executed on each executor)
+    import mlflow
+    model = mlflow.pyfunc.load_model("models:/main.ml_models.customer_churn@Champion")
+
+    # Convert features to format expected by model
+    # Assuming features is a struct column containing all feature values
+    import numpy as np
+    feature_arrays = features.apply(lambda x: np.array(list(x.asDict().values())))
+    feature_df = pd.DataFrame(feature_arrays.tolist())
+
+    # Make predictions
+    predictions = model.predict(feature_df)
+    return pd.Series(predictions)
+
+# Apply to DataFrame
+from pyspark.sql.functions import struct
+feature_cols = ["age", "income", "tenure"]
+
+predictions_df = df.withColumn(
+    "prediction",
+    predict_udf(struct(*feature_cols))
+)
+
+# Write results
+predictions_df.write.mode("overwrite").saveAsTable("main.predictions.customer_churn")
+```
+
+### Vectorized pandas UDF for better performance
+
+```python
+from pyspark.sql.functions import pandas_udf
+from pyspark.sql.types import DoubleType
+import pandas as pd
+
+@pandas_udf(DoubleType())
+def batch_predict(iterator):
+    # Load model once per executor
+    import mlflow
+    model = mlflow.pyfunc.load_model("models:/main.ml_models.customer_churn@Champion")
+
+    # Process batches
+    for features_batch in iterator:
+        # features_batch is a pandas DataFrame
+        predictions = model.predict(features_batch)
+        yield pd.Series(predictions)
+
+# Apply
+from pyspark.sql.functions import struct, col
+predictions_df = df.withColumn(
+    "prediction",
+    batch_predict(struct([col(c) for c in feature_cols]))
+)
+```
+
+## Batch Inference with MLflow.predict()
+
+For simpler cases, use `mlflow.pyfunc.spark_udf`:
+
+```python
+import mlflow
+
+# Load model
+model_uri = "models:/main.ml_models.customer_churn@Champion"
+predict_udf = mlflow.pyfunc.spark_udf(
+    spark,
+    model_uri=model_uri,
+    result_type="double"
+)
+
+# Register as SQL function
+spark.udf.register("predict_churn", predict_udf)
+
+# Use in SQL or DataFrame API
+predictions_df = df.withColumn("prediction", predict_udf(*feature_cols))
+
+# Or use SQL
+spark.sql("""
+    SELECT
+        customer_id,
+        predict_churn(age, income, tenure) as churn_prediction
+    FROM customers
+""").write.saveAsTable("main.predictions.customer_churn")
+```
+
+## Batch Inference with Feature Store
+
+When using Feature Store, leverage automatic feature lookup:
+
+```python
+from databricks.feature_store import FeatureStoreClient
+
+fs = FeatureStoreClient()
+
+# Batch score using feature store
+predictions_df = fs.score_batch(
+    model_uri="models:/main.ml_models.customer_churn@Champion",
+    df=scoring_df  # Contains only primary keys
+)
+
+# Write results
+predictions_df.write.mode("overwrite").saveAsTable("main.predictions.customer_churn")
+```
+
+This automatically retrieves features from feature tables, ensuring consistency between training and inference.
+
+## Using AI Functions for Batch Inference
+
+AI Functions integrate with Model Serving for SQL-based batch inference:
+
+```sql
+-- Call a served model directly from SQL
+SELECT
+    customer_id,
+    ai_query(
+        'customer-churn-endpoint',
+        NAMED_STRUCT(
+            'age', age,
+            'income', income,
+            'tenure', tenure
+        )
+    ) as prediction
+FROM customers
+```
+
+## Best Practices for Batch Inference
+
+### Partition data for efficient processing
+
+```python
+# Process data in partitions
+predictions_df = df.repartition(100).withColumn(
+    "prediction",
+    predict_udf(*feature_cols)
+)
+```
+
+### Cache intermediate results
+
+```python
+# Cache data before prediction if reused
+df.cache()
+predictions_df = df.withColumn("prediction", predict_udf(*feature_cols))
+predictions_df.write.saveAsTable("predictions")
+df.unpersist()
+```
+
+### Monitor batch job performance
+
+```python
+import mlflow
+
+with mlflow.start_run():
+    # Track batch inference metrics
+    start_time = time.time()
+
+    predictions_df = df.withColumn("prediction", predict_udf(*feature_cols))
+    count = predictions_df.count()
+
+    duration = time.time() - start_time
+
+    mlflow.log_metric("batch_size", count)
+    mlflow.log_metric("duration_seconds", duration)
+    mlflow.log_metric("throughput_per_second", count / duration)
+```
+
+### Handle prediction errors gracefully
+
+```python
+from pyspark.sql.functions import when, col
+
+@pandas_udf("double")
+def safe_predict_udf(features: pd.Series) -> pd.Series:
+    try:
+        model = mlflow.pyfunc.load_model("models:/main.ml_models.customer_churn@Champion")
+        predictions = model.predict(features)
+        return pd.Series(predictions)
+    except Exception as e:
+        # Return null for failed predictions
+        return pd.Series([None] * len(features))
+
+predictions_df = df.withColumn("prediction", safe_predict_udf(*feature_cols))
+
+# Filter out failed predictions
+successful_predictions = predictions_df.filter(col("prediction").isNotNull())
+failed_predictions = predictions_df.filter(col("prediction").isNull())
+```
+
+## Scheduling Batch Inference Jobs
+
+Use Databricks Workflows to schedule batch inference:
+
+```python
+# Create a notebook or Python file with inference logic
+# Schedule using Databricks Workflows UI or Jobs API
+
+from databricks.sdk import WorkspaceClient
+
+w = WorkspaceClient()
+
+w.jobs.create(
+    name="Daily Customer Churn Predictions",
+    tasks=[{
+        "task_key": "batch_inference",
+        "notebook_task": {
+            "notebook_path": "/Workspace/predictions/churn_batch_inference",
+            "base_parameters": {
+                "date": "{{job.start_time.iso_date}}"
+            }
+        },
+        "new_cluster": {
+            "spark_version": "15.4.x-scala2.12",
+            "node_type_id": "i3.xlarge",
+            "num_workers": 4
+        }
+    }],
+    schedule={
+        "quartz_cron_expression": "0 0 2 * * ?",  # Daily at 2 AM
+        "timezone_id": "America/Los_Angeles"
+    }
+)
+```

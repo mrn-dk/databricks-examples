@@ -2,8 +2,332 @@
 title: "Streaming Inference"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [What is Lakeflow Declarative Pipelines?](https://docs.databricks.com/aws/en/dlt/index)
 - [Deploy models using Model Serving](https://docs.databricks.com/aws/en/machine-learning/model-serving/index)
 - [Structured Streaming programming guide](https://spark.apache.org/docs/latest/structured-streaming-programming-guide.html)
+
+## What is Streaming Inference?
+
+Streaming inference continuously processes incoming data streams and generates predictions as new data arrives. Unlike batch inference (scheduled processing) or real-time inference (single-request API calls), streaming inference handles continuous data flows with low latency.
+
+## Streaming Inference with Structured Streaming
+
+Structured Streaming treats a live data stream as a table that is continuously appended. You can apply ML models to streaming DataFrames just like batch DataFrames.
+
+### Basic streaming inference pattern
+
+```python
+import mlflow
+from pyspark.sql import functions as F
+
+# Load model
+model_uri = "models:/main.ml_models.fraud_detection@Champion"
+predict_udf = mlflow.pyfunc.spark_udf(spark, model_uri, result_type="double")
+
+# Read from streaming source
+stream_df = (spark.readStream
+    .format("kafka")
+    .option("kafka.bootstrap.servers", "kafka-server:9092")
+    .option("subscribe", "transactions")
+    .load())
+
+# Parse JSON messages
+parsed_df = stream_df.select(
+    F.from_json(F.col("value").cast("string"), schema).alias("data")
+).select("data.*")
+
+# Apply model predictions
+predictions_df = parsed_df.withColumn(
+    "fraud_score",
+    predict_udf(F.col("amount"), F.col("merchant_id"), F.col("location"))
+)
+
+# Write results to sink
+query = (predictions_df.writeStream
+    .format("delta")
+    .outputMode("append")
+    .option("checkpointLocation", "/checkpoints/fraud_detection")
+    .table("main.predictions.fraud_scores"))
+```
+
+### Streaming inference with feature engineering
+
+```python
+from pyspark.sql import functions as F
+
+# Read stream
+stream_df = (spark.readStream
+    .format("cloudFiles")
+    .option("cloudFiles.format", "json")
+    .load("/data/incoming/")
+)
+
+# Feature engineering on streaming data
+features_df = stream_df.withColumn(
+    "hour_of_day", F.hour(F.col("timestamp"))
+).withColumn(
+    "day_of_week", F.dayofweek(F.col("timestamp"))
+).withColumn(
+    "amount_log", F.log(F.col("amount") + 1)
+)
+
+# Apply model
+predictions_df = features_df.withColumn(
+    "prediction",
+    predict_udf(
+        F.col("amount_log"),
+        F.col("hour_of_day"),
+        F.col("day_of_week"),
+        F.col("merchant_category")
+    )
+)
+
+# Write to Delta
+query = (predictions_df.writeStream
+    .format("delta")
+    .outputMode("append")
+    .option("checkpointLocation", "/checkpoints/predictions")
+    .trigger(processingTime="10 seconds")  # Micro-batch every 10 seconds
+    .table("predictions"))
+```
+
+## Streaming Inference with Delta Live Tables
+
+> Identify how streaming inference is performed with Delta Live Tables
+
+Delta Live Tables (DLT) provides a declarative framework for building and managing streaming data pipelines, including ML inference.
+
+### Creating a DLT pipeline with ML inference
+
+```python
+import dlt
+import mlflow
+from pyspark.sql import functions as F
+
+# Load model as UDF
+model_uri = "models:/main.ml_models.churn_prediction@Champion"
+predict_udf = mlflow.pyfunc.spark_udf(spark, model_uri, result_type="double")
+
+# Define streaming source
+@dlt.table(
+    name="raw_events",
+    comment="Raw customer events from Kafka"
+)
+def raw_events():
+    return (spark.readStream
+        .format("kafka")
+        .option("kafka.bootstrap.servers", "kafka-server:9092")
+        .option("subscribe", "customer_events")
+        .load()
+        .select(
+            F.from_json(F.col("value").cast("string"), event_schema).alias("event")
+        )
+        .select("event.*")
+    )
+
+# Define feature transformation
+@dlt.table(
+    name="feature_enriched_events",
+    comment="Events with engineered features"
+)
+def feature_enriched_events():
+    events = dlt.read_stream("raw_events")
+
+    return events.withColumn(
+        "days_since_last_purchase",
+        F.datediff(F.current_date(), F.col("last_purchase_date"))
+    ).withColumn(
+        "lifetime_value_log",
+        F.log(F.col("lifetime_value") + 1)
+    )
+
+# Define prediction table
+@dlt.table(
+    name="churn_predictions",
+    comment="Real-time churn predictions"
+)
+def churn_predictions():
+    features = dlt.read_stream("feature_enriched_events")
+
+    return features.withColumn(
+        "churn_probability",
+        predict_udf(
+            F.col("days_since_last_purchase"),
+            F.col("lifetime_value_log"),
+            F.col("engagement_score")
+        )
+    ).withColumn(
+        "high_risk",
+        F.when(F.col("churn_probability") > 0.7, True).otherwise(False)
+    )
+```
+
+### Benefits of DLT for streaming inference
+
+**Declarative syntax** — Define what you want, not how to compute it. DLT handles orchestration, error handling, and restarts.
+
+**Automatic quality monitoring** — Built-in data quality expectations and monitoring.
+
+**Lineage tracking** — Automatic tracking of data flow through the pipeline.
+
+**Simplified operations** — No need to manage checkpoints, state, or error recovery manually.
+
+**Auto-scaling** — Automatically scales compute resources based on workload.
+
+## Streaming Inference with Stateful Operations
+
+For more complex scenarios requiring windowed aggregations or stateful processing:
+
+```python
+from pyspark.sql import functions as F
+from pyspark.sql.types import StructType, StructField, StringType, DoubleType
+
+# Define state schema
+state_schema = StructType([
+    StructField("user_id", StringType()),
+    StructField("rolling_avg", DoubleType()),
+    StructField("count", DoubleType())
+])
+
+# Stateful aggregation with model prediction
+def compute_features_and_predict(key, values, state):
+    # Get or initialize state
+    if state.exists:
+        current_avg = state.get.rolling_avg
+        current_count = state.get.count
+    else:
+        current_avg = 0.0
+        current_count = 0.0
+
+    # Compute new rolling average
+    new_values = list(values)
+    total = current_avg * current_count + sum(v.amount for v in new_values)
+    new_count = current_count + len(new_values)
+    new_avg = total / new_count
+
+    # Update state
+    state.update((key, new_avg, new_count))
+
+    # Load model and predict
+    model = mlflow.pyfunc.load_model("models:/main.ml_models.anomaly@Champion")
+    for value in new_values:
+        features = [[value.amount, new_avg, value.merchant_category]]
+        prediction = model.predict(features)[0]
+        yield (key, value.timestamp, value.amount, new_avg, prediction)
+
+# Apply stateful transformation
+predictions_df = (stream_df
+    .groupByKey(lambda x: x.user_id)
+    .flatMapGroupsWithState(
+        compute_features_and_predict,
+        state_schema,
+        output_schema,
+        timeout=GroupStateTimeout.ProcessingTimeTimeout
+    ))
+```
+
+## Handling Late Data and Watermarking
+
+Streaming systems must handle out-of-order events:
+
+```python
+from pyspark.sql import functions as F
+
+# Define watermark for late data handling
+watermarked_df = stream_df.withWatermark("timestamp", "10 minutes")
+
+# Aggregate with watermark
+windowed_features = watermarked_df.groupBy(
+    F.window("timestamp", "5 minutes"),
+    "user_id"
+).agg(
+    F.avg("amount").alias("avg_amount"),
+    F.count("*").alias("transaction_count"),
+    F.stddev("amount").alias("amount_stddev")
+)
+
+# Apply predictions
+predictions_df = windowed_features.withColumn(
+    "anomaly_score",
+    predict_udf(
+        F.col("avg_amount"),
+        F.col("transaction_count"),
+        F.col("amount_stddev")
+    )
+)
+
+# Write with checkpoint
+query = (predictions_df.writeStream
+    .format("delta")
+    .outputMode("append")  # Use "update" for aggregations
+    .option("checkpointLocation", "/checkpoints/windowed_predictions")
+    .table("windowed_predictions"))
+```
+
+## Best Practices for Streaming Inference
+
+### Choose appropriate trigger intervals
+
+```python
+# Micro-batch every 30 seconds
+.trigger(processingTime="30 seconds")
+
+# Process as fast as possible
+.trigger(once=True)  # For testing
+
+# Continuous processing (experimental)
+.trigger(continuous="1 second")
+```
+
+### Monitor streaming queries
+
+```python
+# Get query status
+query.status
+
+# Track metrics
+query.recentProgress
+
+# Monitor lag
+query.lastProgress['sources'][0]['inputRowsPerSecond']
+query.lastProgress['sources'][0]['processedRowsPerSecond']
+```
+
+### Handle model updates
+
+```python
+# Use model aliases for seamless updates
+model_uri = "models:/main.ml_models.fraud_detection@Champion"
+
+# When you update the Champion alias, restart the streaming job
+# to load the new model version
+```
+
+### Optimize for throughput
+
+```python
+# Increase parallelism
+stream_df.repartition(100)
+
+# Batch model predictions
+# Load model once per partition instead of per record
+```
+
+### Error handling
+
+```python
+from pyspark.sql.functions import when, col
+
+# Wrap predictions in error handling
+predictions_df = stream_df.withColumn(
+    "prediction",
+    when(
+        col("amount").isNotNull() & (col("amount") > 0),
+        predict_udf(col("amount"), col("merchant"))
+    ).otherwise(None)
+)
+```

@@ -2,9 +2,75 @@
 title: "ML Runtimes"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Databricks Runtime for Machine Learning](https://docs.databricks.com/aws/en/machine-learning/databricks-runtime-ml)
 - [Databricks Runtime ML maintenance policy](https://docs.databricks.com/aws/en/machine-learning/databricks-runtime-ml-maintenance)
 - [Runtime release notes](https://docs.databricks.com/aws/en/release-notes/runtime/)
+
+## ML Runtimes
+
+> Identify the advantages of using ML Runtimes
+
+Databricks Runtime for Machine Learning (Databricks Runtime ML) is a compute runtime that automates the setup of a machine learning environment by pre-installing the most common ML and deep learning libraries. Rather than manually installing and managing dependencies, you get a ready-to-use environment from the moment a compute resource starts.
+
+### Pre-installed libraries
+
+Databricks Runtime ML ships with a curated set of popular ML libraries. Databricks further distinguishes a subset of these as **top-tier libraries**, for which it provides:
+
+- **Faster update cadence** — updated to the latest compatible releases with each runtime release.
+- **Advanced support and testing** — including embedded optimizations within the runtime.
+
+The current top-tier libraries are: `datasets`, `GraphFrames`, `MLflow`, `PyTorch`, `Scikit-learn`, `streaming`, `TensorBoard`, and `transformers`.
+
+For the full list of all included libraries per runtime version, consult the [release notes](https://docs.databricks.com/aws/en/release-notes/runtime/).
+
+You can extend the environment by installing additional libraries:
+- **Compute-scoped libraries** — available to all notebooks on a cluster; installed via the UI or an init script.
+- **Notebook-scoped libraries** — available only to a specific notebook session; installed using `%pip`.
+
+### GPU support
+
+For deep learning workloads, you can select a GPU-enabled instance type when creating a compute resource with Databricks Runtime ML. GPU instances are required for real-time serving of large models such as LLMs.
+
+### Photon compatibility
+
+From Databricks Runtime 15.2 ML onwards, Photon can be enabled alongside Databricks Runtime ML. Photon improves performance for Spark SQL, Spark DataFrames, feature engineering, GraphFrames, and XGBoost4J. However, it does **not** improve performance for Python-based packages such as XGBoost, PyTorch, or TensorFlow, nor for Spark RDD or Spark MLlib workloads.
+
+### Graviton instance support
+
+From Databricks Runtime 15.4 LTS ML onwards, AWS Graviton instance types are supported. These can improve performance for Spark, Photon, feature engineering, XGBoost, LightGBM, and Spark MLlib gradient boosting algorithms, often at a better price-to-performance ratio than standard EC2 instance types.
+
+### Compute access mode
+
+Compute resources running Databricks Runtime ML must use **Dedicated** access mode to access Unity Catalog. This is automatically configured in the UI when you select the Machine Learning runtime. In Dedicated mode, the resource can be assigned to a single user or a group, with group members' permissions automatically scoped down to the group's permissions.
+
+From Databricks Runtime 15.4 LTS ML onwards, Dedicated mode also enables fine-grained access control and querying of tables created by Lakeflow Spark Declarative Pipelines (streaming tables and materialized views).
+
+## Library maintenance policy
+
+### Top-tier libraries
+
+Databricks updates top-tier libraries to their latest compatible releases with each runtime release. Top-tier libraries are added or removed only at major runtime releases.
+
+A library may be **removed from the top-tier list** if:
+- It has no new commits for two months and no new releases for six months.
+- Its usage drops significantly.
+- It is superseded by a newer package.
+
+### Library deprecation
+
+A pre-installed library is **removed from the runtime** when it is no longer actively maintained, defined as any of:
+- No new commits for three months and no new releases for nine months.
+- Its repository is archived.
+- Maintenance is formally discontinued.
+
+When a library is planned for removal, Databricks notifies users by:
+1. Adding a deprecation warning in the runtime release notes.
+2. Displaying an import-time warning in the notebook.
+3. Updating the relevant documentation.
+
+After removal, you can continue using the library by installing it manually or pinning to an older runtime version.
 

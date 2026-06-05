@@ -2,9 +2,235 @@
 title: "Data Exploration"
 ---
 
-## Further Reading
+## Sources
+
+This chapter is based on the following sources, and might paraphrase them somewhat. Databricks is a fast-moving platform and therefore some of the information on this page might be outdated - please always consult the sources for the latest and correct information.
 
 - [Exploratory data analysis on Databricks](https://docs.databricks.com/aws/en/exploratory-data-analysis/index)
 - [Tutorial: EDA techniques using Databricks notebooks](https://docs.databricks.com/aws/en/notebooks/eda-tutorial)
 - [Create data visualizations in Databricks notebooks](https://docs.databricks.com/aws/en/visualizations/)
 - [Notebook and SQL editor visualization types](https://docs.databricks.com/aws/en/visualizations/visualization-types)
+
+## What is Exploratory Data Analysis?
+
+Exploratory data analysis (EDA) includes methods for exploring datasets to summarize their main characteristics and identify any problems with the data. The approach uses statistical methods and visualizations to assess dataset quality and guide subsequent analysis and modeling decisions.
+
+## Computing Summary Statistics
+
+> Compute summary statistics on a Spark DataFrame using `.summary()` or dbutils data summaries
+
+Spark DataFrames provide several methods to compute summary statistics:
+
+### Using `.summary()`
+
+The `.summary()` method computes comprehensive statistics for all numeric columns:
+
+```python
+# Compute extended summary statistics
+df.summary().show()
+
+# Specify which statistics to compute
+df.summary("count", "mean", "stddev", "min", "max").show()
+```
+
+This returns a DataFrame with statistics including:
+- **count** — Number of non-null values
+- **mean** — Average value
+- **stddev** — Standard deviation
+- **min** — Minimum value
+- **25%** — First quartile
+- **50%** — Median
+- **75%** — Third quartile
+- **max** — Maximum value
+
+### Using `.describe()`
+
+For basic statistics, you can use `.describe()`:
+
+```python
+# Compute basic statistics
+df.describe().show()
+
+# Compute statistics for specific columns
+df.describe("age", "income").show()
+```
+
+### Using display() and dbutils
+
+Databricks notebooks provide enhanced visualization when you use `display()`:
+
+```python
+# Display DataFrame with interactive features
+display(df)
+
+# Compute and display summary statistics
+display(df.summary())
+```
+
+When you run code in a SQL language cell in a Python notebook, the table results are automatically made available as a Python DataFrame, enabling seamless data exploration workflows.
+
+## Removing Outliers
+
+> Remove outliers from a Spark DataFrame based on standard deviation or IQR
+
+Outliers can significantly impact model performance. Two common approaches for identifying and removing outliers are standard deviation and Interquartile Range (IQR) methods.
+
+### Standard deviation method
+
+Remove values that fall outside a specified number of standard deviations from the mean:
+
+```python
+from pyspark.sql import functions as F
+
+# Calculate mean and standard deviation
+stats = df.select(
+    F.mean("column_name").alias("mean"),
+    F.stddev("column_name").alias("stddev")
+).first()
+
+# Remove outliers (values beyond 3 standard deviations)
+df_no_outliers = df.filter(
+    (F.col("column_name") >= stats["mean"] - 3 * stats["stddev"]) &
+    (F.col("column_name") <= stats["mean"] + 3 * stats["stddev"])
+)
+```
+
+### Interquartile Range (IQR) method
+
+The IQR method is more robust to extreme outliers:
+
+```python
+from pyspark.sql import functions as F
+
+# Calculate quartiles
+quantiles = df.approxQuantile("column_name", [0.25, 0.75], 0.05)
+q1, q3 = quantiles[0], quantiles[1]
+iqr = q3 - q1
+
+# Define outlier boundaries (typically 1.5 * IQR)
+lower_bound = q1 - 1.5 * iqr
+upper_bound = q3 + 1.5 * iqr
+
+# Remove outliers
+df_no_outliers = df.filter(
+    (F.col("column_name") >= lower_bound) &
+    (F.col("column_name") <= upper_bound)
+)
+```
+
+### When to use each method
+
+- **Standard deviation** — Works well when data is approximately normally distributed
+- **IQR** — More robust for skewed distributions and less sensitive to extreme outliers
+
+## Creating Visualizations
+
+> Create visualizations for categorical or continuous features
+
+Databricks notebooks provide built-in visualization capabilities for exploring both categorical and continuous features.
+
+### Creating a visualization
+
+1. Generate a result set using SQL queries or Python code with the `display()` function
+2. Click the **+** button above your results table and select "Visualization"
+3. Choose a chart type from the dropdown menu
+4. Configure which columns to visualize
+5. Save your configuration
+
+### Visualizing continuous features
+
+For continuous numerical data:
+
+**Histograms** — Show the distribution of values:
+```python
+# Display histogram
+display(df.select("age"))
+```
+
+**Line charts** — Useful for time-series or ordered continuous data:
+```python
+# Display line chart
+display(df.select("timestamp", "value"))
+```
+
+**Box plots** — Show quartiles and outliers:
+```python
+# Create box plot using summary statistics
+display(df.summary("age"))
+```
+
+### Visualizing categorical features
+
+For categorical data:
+
+**Bar charts** — Compare counts or aggregations across categories:
+```python
+# Count by category
+display(df.groupBy("category").count())
+```
+
+**Pie charts** — Show proportions of different categories:
+```python
+# Show category distribution
+display(df.groupBy("category").count())
+```
+
+### Customization options
+
+- **Aggregation** — Add aggregation functions (Sum, Average, Count, Max, Min, Median) directly in the visualization without modifying your query
+- **Filtering** — Apply filters to visualizations using the filter icon. Filters applied to a visualization also apply to the results table.
+- **Colors** — Customize colors by clicking the Colors tab
+- **Download** — Download visualizations as PNG files
+
+## Comparing Features
+
+> Compare two categorical or two continuous features using the appropriate method
+
+### Comparing two categorical features
+
+Use crosstabs or grouped bar charts to compare categorical features:
+
+```python
+# Create a crosstab
+df.crosstab("category1", "category2").show()
+
+# Grouped count
+display(df.groupBy("category1", "category2").count())
+```
+
+Visualize with:
+- **Stacked bar charts** — Show composition within each category
+- **Grouped bar charts** — Show side-by-side comparisons
+- **Heatmaps** — Show the relationship intensity between two categorical variables
+
+### Comparing two continuous features
+
+Use scatter plots and correlation analysis:
+
+```python
+# Visualize relationship with scatter plot
+display(df.select("feature1", "feature2"))
+
+# Calculate correlation
+from pyspark.sql.functions import corr
+df.select(corr("feature1", "feature2")).show()
+```
+
+Visualize with:
+- **Scatter plots** — Show the relationship between two continuous variables
+- **Line charts** — Useful when one variable represents time or ordering
+- **Heatmaps** — For correlation matrices across multiple continuous features
+
+### Statistical comparison methods
+
+```python
+from pyspark.sql import functions as F
+
+# Compare distributions
+df.groupBy("category").agg(
+    F.mean("continuous_feature").alias("mean"),
+    F.stddev("continuous_feature").alias("stddev"),
+    F.min("continuous_feature").alias("min"),
+    F.max("continuous_feature").alias("max")
+).show()
+```
